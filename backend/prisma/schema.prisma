@@ -1,0 +1,577 @@
+// CargoTrack — database schema
+//
+// Mirrors Information/Cargo_Track_ERD.pdf: 19 entities.
+// No schema change proceeds without updating the ERD (roadmap Gate 0).
+//
+// Conventions:
+//   - every money column carries an explicit currency column
+//   - append-only tables (STATUS_HISTORY, NOTIFICATIONS) have no updated_at
+//   - status columns are enums, never free strings (roadmap Phase 2)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  OFFICE_MANAGER
+  CLIENT
+}
+
+/// Order lifecycle: 8 states + 4 exception paths.
+/// See Information/Cargo_Track_StateDiagram.png (left panel).
+enum OrderStatus {
+  ORDER_PLACED
+  ORDER_CONFIRMED
+  GOODS_RECEIVED
+  SHIPMENT_BOOKING
+  ROUTE_DECISION
+  IN_TRANSIT
+  DELIVERED
+  CLOSED_OUT
+
+  // Exception paths
+  CANCELLED
+  FACTORY_CANNOT_FULFIL
+  QC_REJECTED
+  DOCUMENTS_WITHHELD
+}
+
+/// Container lifecycle: 5 states. See state diagram (right panel).
+enum ContainerStatus {
+  OPEN_FOR_ALLOCATION
+  FULLY_ALLOCATED
+  DEPARTED
+  ARRIVED
+  CLOSED
+}
+
+enum ProductionOrderStatus {
+  PENDING
+  IN_PRODUCTION
+  READY
+  RECEIVED
+  CANCELLED
+}
+
+enum QcOutcome {
+  PASSED
+  REJECTED
+  PARTIAL
+}
+
+enum StockStatus {
+  IN_STOCK
+  ON_HOLD
+  RELEASED
+}
+
+enum RouteType {
+  DIRECT
+  TRANSIT
+}
+
+enum PricingBasis {
+  CBM
+  WEIGHT
+  FLAT
+}
+
+enum DocumentType {
+  BILL_OF_LADING
+  PACKING_LIST
+  COMMERCIAL_INVOICE
+  CERTIFICATE_OF_ORIGIN
+  CUSTOMS_DECLARATION
+  INSURANCE_CERTIFICATE
+  QC_REPORT
+  OTHER
+}
+
+enum ClientDocumentType {
+  PASSPORT_SCAN
+  TRADE_LICENSE
+  TAX_CARD
+  SIGNATURE_SPECIMEN
+  OTHER
+}
+
+enum PaymentType {
+  DEPOSIT
+  BALANCE
+  FREIGHT
+  CUSTOMS
+  STORAGE
+  REFUND
+}
+
+enum PaymentDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CounterpartyType {
+  CLIENT
+  SUPPLIER
+  FREIGHT_PROVIDER
+  CUSTOMS_AGENT
+  WAREHOUSE
+}
+
+enum EntityType {
+  ORDER
+  CONTAINER
+  PRODUCTION_ORDER
+  STOCK_RECORD
+  DOCUMENT
+  PAYMENT
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  IN_APP
+}
+
+/// DEAD_LETTER is the terminal failure state of the retry pipeline
+/// (roadmap Phase 4 / Gate 4).
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  RETRYING
+  DEAD_LETTER
+}
+
+enum RecipientType {
+  CLIENT
+  USER
+  SUPPLIER
+  FREIGHT_PROVIDER
+  CUSTOMS_AGENT
+}
+
+// ---------------------------------------------------------------------------
+// Parties
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  /// Set only for CLIENT users — this is the data-scoping anchor.
+  clientId     String?  @map("client_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  client            Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  statusChanges     StatusHistory[]
+  qcSignOffs        QcInspection[]
+  preparedDocuments Document[]
+
+  @@index([clientId])
+  @@index([role])
+  @@map("users")
+}
+
+model Client {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyName    String   @map("company_name")
+  contactName    String   @map("contact_name")
+  email          String
+  phone          String?
+  country        String
+  address        String?
+  /// A consolidator client shares containers with others.
+  isConsolidator Boolean  @default(false) @map("is_consolidator")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  users     User[]
+  orders    Order[]
+  documents ClientDocument[]
+
+  @@index([companyName])
+  @@map("clients")
+}
+
+/// Sensitive client document references, isolated from DOCUMENTS so retention
+/// can be enforced independently (roadmap Phase 4).
+model ClientDocument {
+  id                 String             @id @default(uuid()) @db.Uuid
+  clientId           String             @map("client_id") @db.Uuid
+  docType            ClientDocumentType @map("doc_type")
+  /// Reference to object storage. Binary data is never stored in the database.
+  fileRef            String             @map("file_ref")
+  uploadedAt         DateTime           @default(now()) @map("uploaded_at")
+  retentionExpiresAt DateTime?          @map("retention_expires_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([retentionExpiresAt])
+  @@map("client_documents")
+}
+
+model Supplier {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  country      String
+  contactPhone String?  @map("contact_phone")
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  productionOrders ProductionOrder[]
+
+  @@index([name])
+  @@map("suppliers")
+}
+
+model FreightProvider {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  country      String
+  contactPhone String?  @map("contact_phone")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  containers Container[]
+
+  @@index([name])
+  @@map("freight_providers")
+}
+
+model CustomsAgent {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  country   String
+  phone     String?
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  containers Container[]
+
+  @@index([name])
+  @@map("customs_agents")
+}
+
+// ---------------------------------------------------------------------------
+// Orders
+// ---------------------------------------------------------------------------
+
+model Order {
+  id                String      @id @default(uuid()) @db.Uuid
+  clientId          String      @map("client_id") @db.Uuid
+  status            OrderStatus @default(ORDER_PLACED)
+  agreedPrice       Decimal     @map("agreed_price") @db.Decimal(14, 2)
+  currency          String      @db.Char(3)
+  /// Roughly 20% of agreed_price, enforced in the service layer.
+  depositPercentage Decimal     @default(20) @map("deposit_percentage") @db.Decimal(5, 2)
+  totalCbm          Decimal?    @map("total_cbm") @db.Decimal(10, 3)
+  totalWeightKg     Decimal?    @map("total_weight_kg") @db.Decimal(12, 3)
+  requiredBy        DateTime?   @map("required_by") @db.Date
+  placedAt          DateTime    @default(now()) @map("placed_at")
+  closedAt          DateTime?   @map("closed_at")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  client           Client                @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  items            OrderItem[]
+  productionOrders ProductionOrder[]
+  allocations      ContainerAllocation[]
+  documents        Document[]
+  payments         Payment[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([placedAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String   @id @default(uuid()) @db.Uuid
+  orderId      String   @map("order_id") @db.Uuid
+  description  String
+  category     String?
+  quantity     Int
+  unitCbm      Decimal  @map("unit_cbm") @db.Decimal(10, 4)
+  unitWeightKg Decimal  @map("unit_weight_kg") @db.Decimal(12, 3)
+  unitPrice    Decimal  @map("unit_price") @db.Decimal(14, 2)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  stockRecords StockRecord[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model ProductionOrder {
+  id                 String                @id @default(uuid()) @db.Uuid
+  orderId            String                @map("order_id") @db.Uuid
+  supplierId         String                @map("supplier_id") @db.Uuid
+  agreedCost         Decimal               @map("agreed_cost") @db.Decimal(14, 2)
+  currency           String                @db.Char(3)
+  expectedReadyDate  DateTime?             @map("expected_ready_date") @db.Date
+  actualReceivedDate DateTime?             @map("actual_received_date") @db.Date
+  status             ProductionOrderStatus @default(PENDING)
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+
+  order       Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  supplier    Supplier       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  inspections QcInspection[]
+
+  @@index([orderId])
+  @@index([supplierId])
+  @@index([status])
+  @@map("production_orders")
+}
+
+model QcInspection {
+  id                String    @id @default(uuid()) @db.Uuid
+  productionOrderId String    @map("production_order_id") @db.Uuid
+  inspectedAt       DateTime  @map("inspected_at")
+  outcome           QcOutcome
+  rejectionNotes    String?   @map("rejection_notes")
+  /// HARD RULE: the balance invoice cannot be raised until this is set.
+  /// The client signs the QC sheet in person — no sign-off, no balance invoice.
+  clientSignedOffAt DateTime? @map("client_signed_off_at")
+  signedOffBy       String?   @map("signed_off_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  signedOffByUser User?           @relation(fields: [signedOffBy], references: [id], onDelete: SetNull)
+
+  @@index([productionOrderId])
+  @@map("qc_inspections")
+}
+
+// ---------------------------------------------------------------------------
+// Warehousing
+// ---------------------------------------------------------------------------
+
+model Warehouse {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  country   String
+  address   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  stockRecords StockRecord[]
+
+  @@map("warehouses")
+}
+
+model StockRecord {
+  id          String      @id @default(uuid()) @db.Uuid
+  warehouseId String      @map("warehouse_id") @db.Uuid
+  orderItemId String      @map("order_item_id") @db.Uuid
+  quantity    Int
+  status      StockStatus @default(IN_STOCK)
+  /// Free text by design — the domain has no fixed taxonomy for holds.
+  holdReason  String?     @map("hold_reason")
+  receivedAt  DateTime    @default(now()) @map("received_at")
+  releasedAt  DateTime?   @map("released_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([warehouseId])
+  @@index([orderItemId])
+  @@index([status])
+  @@map("stock_records")
+}
+
+// ---------------------------------------------------------------------------
+// Shipping
+// ---------------------------------------------------------------------------
+
+model Container {
+  id                String          @id @default(uuid()) @db.Uuid
+  freightProviderId String?         @map("freight_provider_id") @db.Uuid
+  customsAgentId    String?         @map("customs_agent_id") @db.Uuid
+  containerRef      String          @unique @map("container_ref")
+  containerType     String          @map("container_type")
+  capacityCbm       Decimal         @map("capacity_cbm") @db.Decimal(10, 3)
+  capacityWeightKg  Decimal         @map("capacity_weight_kg") @db.Decimal(12, 3)
+  pricingBasis      PricingBasis    @default(CBM) @map("pricing_basis")
+  bookingCost       Decimal?        @map("booking_cost") @db.Decimal(14, 2)
+  currency          String?         @db.Char(3)
+  originPort        String          @map("origin_port")
+  destinationPort   String          @map("destination_port")
+  routeType         RouteType       @default(DIRECT) @map("route_type")
+  insuranceRef      String?         @map("insurance_ref")
+  status            ContainerStatus @default(OPEN_FOR_ALLOCATION)
+  bookedAt          DateTime?       @map("booked_at")
+  departedAt        DateTime?       @map("departed_at")
+  arrivedAt         DateTime?       @map("arrived_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  freightProvider FreightProvider?      @relation(fields: [freightProviderId], references: [id], onDelete: SetNull)
+  customsAgent    CustomsAgent?         @relation(fields: [customsAgentId], references: [id], onDelete: SetNull)
+  allocations     ContainerAllocation[]
+  transitLegs     TransitLeg[]
+  documents       Document[]
+
+  @@index([status])
+  @@index([freightProviderId])
+  @@map("containers")
+}
+
+/// Junction table enabling consolidated shipping: one container carries many
+/// orders, and CBM/weight are allocated per order row. The capacity guard
+/// rejects any allocation exceeding the container maximum.
+model ContainerAllocation {
+  id                String   @id @default(uuid()) @db.Uuid
+  containerId       String   @map("container_id") @db.Uuid
+  orderId           String   @map("order_id") @db.Uuid
+  allocatedCbm      Decimal  @map("allocated_cbm") @db.Decimal(10, 3)
+  allocatedWeightKg Decimal  @map("allocated_weight_kg") @db.Decimal(12, 3)
+  allocatedCost     Decimal? @map("allocated_cost") @db.Decimal(14, 2)
+  currency          String?  @db.Char(3)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  container Container @relation(fields: [containerId], references: [id], onDelete: Cascade)
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([containerId, orderId])
+  @@index([orderId])
+  @@map("container_allocations")
+}
+
+/// One row per leg when a container is routed via a transit stop.
+/// Optional sub-flow of the container lifecycle.
+model TransitLeg {
+  id          String    @id @default(uuid()) @db.Uuid
+  containerId String    @map("container_id") @db.Uuid
+  sequence    Int
+  port        String
+  arrivedAt   DateTime? @map("arrived_at")
+  departedAt  DateTime? @map("departed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  container Container @relation(fields: [containerId], references: [id], onDelete: Cascade)
+
+  @@unique([containerId, sequence])
+  @@map("transit_legs")
+}
+
+// ---------------------------------------------------------------------------
+// Documents, money & cross-cutting
+// ---------------------------------------------------------------------------
+
+/// Version chains via the self-referencing supersedes_id.
+/// STRONGEST BUSINESS RULE: released_to_client_at stays null until the balance
+/// payment clears, and file_ref is withheld from client responses until then.
+model Document {
+  id                 String       @id @default(uuid()) @db.Uuid
+  orderId            String?      @map("order_id") @db.Uuid
+  containerId        String?      @map("container_id") @db.Uuid
+  docType            DocumentType @map("doc_type")
+  version            Int          @default(1)
+  supersedesId       String?      @unique @map("supersedes_id") @db.Uuid
+  fileRef            String       @map("file_ref")
+  preparedBy         String?      @map("prepared_by") @db.Uuid
+  createdAt          DateTime     @default(now()) @map("created_at")
+  releasedToClientAt DateTime?    @map("released_to_client_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  order          Order?     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  container      Container? @relation(fields: [containerId], references: [id], onDelete: SetNull)
+  preparedByUser User?      @relation(fields: [preparedBy], references: [id], onDelete: SetNull)
+
+  supersedes   Document? @relation("DocumentVersionChain", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy Document? @relation("DocumentVersionChain")
+
+  @@index([orderId])
+  @@index([containerId])
+  @@index([docType])
+  @@map("documents")
+}
+
+model Payment {
+  id               String           @id @default(uuid()) @db.Uuid
+  orderId          String           @map("order_id") @db.Uuid
+  paymentType      PaymentType      @map("payment_type")
+  direction        PaymentDirection
+  counterpartyType CounterpartyType @map("counterparty_type")
+  counterpartyId   String           @map("counterparty_id") @db.Uuid
+  amount           Decimal          @db.Decimal(14, 2)
+  currency         String           @db.Char(3)
+  fxRate           Decimal?         @map("fx_rate") @db.Decimal(14, 6)
+  paidAt           DateTime?        @map("paid_at")
+  reference        String?
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([paymentType])
+  @@index([paidAt])
+  @@map("payments")
+}
+
+/// Append-only audit trail. Every valid state transition writes one row.
+model StatusHistory {
+  id         String     @id @default(uuid()) @db.Uuid
+  entityType EntityType @map("entity_type")
+  entityId   String     @map("entity_id") @db.Uuid
+  fromStatus String?    @map("from_status")
+  toStatus   String     @map("to_status")
+  changedBy  String?    @map("changed_by") @db.Uuid
+  reason     String?
+  changedAt  DateTime   @default(now()) @map("changed_at")
+
+  changedByUser User? @relation(fields: [changedBy], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([changedAt])
+  @@map("status_history")
+}
+
+/// Append-only. Every status transition enqueues a BullMQ job that writes here.
+/// retry_count / last_error / DEAD_LETTER status drive the retry pipeline.
+model Notification {
+  id            String              @id @default(uuid()) @db.Uuid
+  eventType     String              @map("event_type")
+  entityType    EntityType          @map("entity_type")
+  entityId      String              @map("entity_id") @db.Uuid
+  recipientType RecipientType       @map("recipient_type")
+  recipientId   String              @map("recipient_id") @db.Uuid
+  channel       NotificationChannel
+  clientVisible Boolean             @default(true) @map("client_visible")
+  status        NotificationStatus  @default(PENDING)
+  retryCount    Int                 @default(0) @map("retry_count")
+  scheduledAt   DateTime            @default(now()) @map("scheduled_at")
+  sentAt        DateTime?           @map("sent_at")
+  lastError     String?             @map("last_error")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  @@index([status])
+  @@index([entityType, entityId])
+  @@index([scheduledAt])
+  @@map("notifications")
+}
