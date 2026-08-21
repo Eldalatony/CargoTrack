@@ -19,7 +19,9 @@ export class RedisHealthIndicator {
       const reply = await this.redis.ping();
 
       if (reply !== 'PONG') {
-        return indicator.down({ message: `unexpected reply "${reply}"` });
+        return indicator.down({
+          message: `unexpected reply "${String(reply)}"`,
+        });
       }
 
       return indicator.up({ responseTimeMs: Date.now() - start });

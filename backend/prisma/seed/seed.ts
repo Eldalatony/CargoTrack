@@ -647,17 +647,18 @@ async function main(): Promise<void> {
     OrderStatus.CLOSED_OUT,
   ];
 
+  // The API opens every trail with a row whose from_status is NULL (the
+  // placement itself), so the fixture does the same — otherwise the demo data
+  // and OrdersService would disagree about what a complete history looks like.
   await prisma.statusHistory.createMany({
-    data: closedOrderTrail.slice(1).map((toStatus, index) => ({
+    data: closedOrderTrail.map((toStatus, index) => ({
       entityType: EntityType.ORDER,
       entityId: closedOrder.id,
-      fromStatus: closedOrderTrail[index],
+      fromStatus: index === 0 ? null : closedOrderTrail[index - 1],
       toStatus,
       changedBy: officeManager.id,
-      reason: null,
-      changedAt: new Date(
-        Date.UTC(2026, 0, 20 + index * 18, 10, 0, 0),
-      ),
+      reason: index === 0 ? 'Order placed' : null,
+      changedAt: new Date(Date.UTC(2026, 0, 20 + index * 18, 10, 0, 0)),
     })),
   });
 

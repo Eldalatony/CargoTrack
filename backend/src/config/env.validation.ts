@@ -28,7 +28,14 @@ const baseSchema = z.object({
 const apiSchema = baseSchema.extend({
   PORT: z.coerce.number().int().positive().default(4000),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
-  JWT_EXPIRES_IN: z.string().default('1d'),
+  /** A jsonwebtoken lifetime: seconds as a number, or "30m" / "1d" / "2w". */
+  JWT_EXPIRES_IN: z
+    .string()
+    .regex(
+      /^\d+(ms|s|m|h|d|w|y)?$/,
+      'JWT_EXPIRES_IN must look like 3600, 30m, 1d or 2w',
+    )
+    .default('1d'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 });
 
@@ -58,7 +65,7 @@ function validate<T extends z.ZodTypeAny>(
     );
   }
 
-  return result.data;
+  return result.data as z.infer<T>;
 }
 
 export const validateApiEnv = (raw: Record<string, unknown>): ApiEnv =>

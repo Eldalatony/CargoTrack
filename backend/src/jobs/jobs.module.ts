@@ -3,10 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { redisOptionsFromUrl } from '../config/redis.config';
-import {
-  QUEUE_NOTIFICATIONS,
-  QUEUE_RETENTION,
-} from './queues/queue.constants';
+import { QUEUE_NOTIFICATIONS, QUEUE_RETENTION } from './queues/queue.constants';
 
 /**
  * Registers the BullMQ connection and the queue producers.
@@ -20,9 +17,7 @@ import {
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        connection: redisOptionsFromUrl(
-          config.getOrThrow<string>('REDIS_URL'),
-        ),
+        connection: redisOptionsFromUrl(config.getOrThrow<string>('REDIS_URL')),
       }),
     }),
     BullModule.registerQueue(
