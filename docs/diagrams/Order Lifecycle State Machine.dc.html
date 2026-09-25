@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  doc-page:not(:defined){visibility:hidden}
+  body{margin:0}
+  a{color:#2e7d4f;text-decoration:none}
+  a:hover{color:#1b1815}
+</style>
+<script src="./doc-page.js"></script>
+</helmet>
+<doc-page size="letter" orientation="landscape">
+<section class="page" style="box-sizing:border-box;width:100%;height:100%;padding:36px;background:#f7f5f1;color:#1b1815;font-family:'IBM Plex Sans',system-ui,sans-serif;display:flex;flex-direction:column;gap:12px">
+
+  <header style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid #1b1815;padding-bottom:8px;height:44px;box-sizing:border-box">
+    <div style="display:flex;align-items:baseline;gap:14px">
+      <h1 style="margin:0;font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;letter-spacing:0.08em">ORDER LIFECYCLE — STATE MACHINE</h1>
+      <span style="font-size:10.5px;color:#6d675f;letter-spacing:0.02em">Server-authoritative transitions · order placement through close-out</span>
+    </div>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#8d8780;letter-spacing:0.06em">ENG REF · REV 2026.09</span>
+  </header>
+
+  <div style="display:flex;gap:16px;align-items:flex-start">
+
+    <div style="position:relative;width:740px;height:548px;flex:none">
+      <svg viewBox="0 0 740 548" width="740" height="548" style="position:absolute;left:0;top:0;overflow:visible">
+        <defs>
+          <marker id="ag" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 z" fill="#2e7d4f"></path></marker>
+          <marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 z" fill="#b8434c"></path></marker>
+          <marker id="ay" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 z" fill="#8d8780"></path></marker>
+          <marker id="aa" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 z" fill="#a97514"></path></marker>
+        </defs>
+
+        <g fill="none" stroke="#2e7d4f" stroke-width="1.4" marker-end="url(#ag)">
+          <path d="M370,43 V71"></path>
+          <path d="M370,111 V139"></path>
+          <path d="M370,179 V203"></path>
+          <path d="M370,243 V265"></path>
+          <path d="M370,305 C290,305 275,320 275,338 C275,356 290,369 370,369"></path>
+          <path d="M370,305 C450,305 465,320 465,338 C465,356 450,369 370,369"></path>
+          <path d="M370,409 V437"></path>
+          <path d="M370,477 V501"></path>
+        </g>
+
+        <g fill="none" stroke="#b8434c" stroke-width="1.2" stroke-dasharray="2 3">
+          <path d="M290,92 H168" marker-end="url(#ar)"></path>
+          <path d="M290,153 H168" marker-end="url(#ar)"></path>
+          <path d="M290,17 H10 V224 H20" marker-end="url(#ar)"></path>
+          <path d="M24,92 H10"></path>
+          <path d="M24,160 H10"></path>
+          <path d="M450,458 H562" marker-end="url(#ar)"></path>
+        </g>
+        <g fill="#b8434c" stroke="none"><circle cx="10" cy="92" r="2.2"></circle><circle cx="10" cy="160" r="2.2"></circle></g>
+
+        <g fill="none" stroke="#8d8780" stroke-width="1.2" stroke-dasharray="2 3">
+          <path d="M94,73 V31 H286" marker-end="url(#ay)"></path>
+          <path d="M164,167 H286" marker-end="url(#ay)"></path>
+          <path d="M370,192 H562"></path>
+        </g>
+
+        <g fill="none" stroke="#a97514" stroke-width="1.3">
+          <path d="M370,126 H562" stroke-dasharray="5 3"></path>
+          <path d="M653,477 V522 H454" marker-end="url(#aa)"></path>
+        </g>
+
+        <g fill="none" stroke="#6f57a8" stroke-width="1.5" stroke-dasharray="6 4">
+          <path d="M450,390 H562"></path>
+        </g>
+
+        <g font-family="'IBM Plex Mono',monospace" font-size="8.5" fill="#6d675f" letter-spacing="0.04em">
+          <text x="378" y="60">confirm</text>
+          <text x="378" y="121">goods in</text>
+          <text x="378" y="186">book freight</text>
+          <text x="378" y="257">plan route</text>
+          <text x="378" y="426">arrival scan</text>
+          <text x="378" y="493">docs released</text>
+          <text x="268" y="341" text-anchor="end">DIRECT</text>
+          <text x="472" y="341">VIA_TRANSIT_HUB</text>
+          <text x="150" y="12" text-anchor="end" fill="#b8434c">cancel</text>
+          <text x="228" y="86" text-anchor="middle" fill="#b8434c">cannot fulfil</text>
+          <text x="228" y="147" text-anchor="middle" fill="#b8434c">QC fail</text>
+          <text x="228" y="180" text-anchor="middle">rework accepted</text>
+          <text x="100" y="52">re-open</text>
+          <text x="506" y="452" text-anchor="middle" fill="#b8434c">payment late</text>
+          <text x="646" y="502" text-anchor="end" fill="#a97514">final payment clears</text>
+          <text x="506" y="384" text-anchor="middle" fill="#6f57a8">hand-off</text>
+        </g>
+      </svg>
+
+      <div style="position:absolute;left:290px;top:5px;width:160px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #d8d3ca;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em">ORDER_PLACED</div>
+      <div style="position:absolute;left:290px;top:73px;width:160px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #d8d3ca;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em">ORDER_CONFIRMED</div>
+      <div style="position:absolute;left:290px;top:141px;width:160px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #d8d3ca;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em">GOODS_RECEIVED</div>
+      <div style="position:absolute;left:290px;top:205px;width:160px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #d8d3ca;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em">SHIPMENT_BOOKING</div>
+      <div style="position:absolute;left:290px;top:267px;width:160px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #d8d3ca;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em">ROUTE_DECISION</div>
+      <div style="position:absolute;left:290px;top:371px;width:160px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #d8d3ca;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em">IN_TRANSIT</div>
+      <div style="position:absolute;left:290px;top:439px;width:160px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #d8d3ca;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em">DELIVERED</div>
+      <div style="position:absolute;left:290px;top:503px;width:160px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #2e7d4f;border-radius:2px;box-shadow:0 0 0 2px #f7f5f1,0 0 0 3px #2e7d4f;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.04em;color:#2e7d4f">CLOSED_OUT</div>
+
+      <div style="position:absolute;left:24px;top:73px;width:140px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px dashed #d9aeb2;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.02em;color:#9c3941;text-align:center">FACTORY_CANNOT_FULFIL</div>
+      <div style="position:absolute;left:24px;top:141px;width:140px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px dashed #d9aeb2;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.02em;color:#9c3941">QC_REJECTED</div>
+      <div style="position:absolute;left:24px;top:205px;width:140px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #b8434c;border-radius:2px;box-shadow:0 0 0 2px #f7f5f1,0 0 0 3px #b8434c;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.02em;color:#b8434c">CANCELLED</div>
+
+      <div style="position:absolute;left:566px;top:111px;width:174px;height:30px;box-sizing:border-box;padding:0 8px;display:flex;align-items:center;background:#fdf7e8;border:1px solid #e3ca92;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;line-height:1.3;color:#8a5f10;letter-spacing:0.02em">GATE · deposit ≥ 20% cleared before GOODS_RECEIVED</div>
+      <div style="position:absolute;left:566px;top:177px;width:174px;height:30px;box-sizing:border-box;padding:0 8px;display:flex;align-items:center;background:#fff;border:1px dotted #bdb7ae;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;line-height:1.3;color:#6d675f;letter-spacing:0.02em">GUARD · client QC sign-off on file</div>
+      <div style="position:absolute;left:566px;top:369px;width:174px;height:42px;box-sizing:border-box;padding:0 8px;display:flex;align-items:center;background:#f6f2fb;border:1px dashed #b6a6d8;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:9px;line-height:1.3;color:#5b4691;letter-spacing:0.02em">CONTAINER_LIFECYCLE → separate machine, own history</div>
+      <div style="position:absolute;left:566px;top:439px;width:174px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px dashed #d9aeb2;border-radius:2px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.02em;color:#9c3941">DOCUMENTS_WITHHELD</div>
+    </div>
+
+    <aside style="flex:1;min-width:0;height:548px;display:flex;flex-direction:column;gap:12px">
+      <div style="border:1px solid #ddd8cf;background:#fff;padding:10px 11px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.12em;color:#8d8780;margin-bottom:8px">LEGEND</div>
+        <div style="display:flex;flex-direction:column;gap:7px;font-size:10px;color:#3b3731">
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:26px;flex:none;border-top:2px solid #2e7d4f"></span>normal path</div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:26px;flex:none;border-top:2px dotted #b8434c"></span>exception / failure</div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:26px;flex:none;border-top:2px dotted #8d8780"></span>optional loop back</div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:26px;flex:none;border-top:2px dashed #a97514"></span>payment-gated</div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:26px;flex:none;border-top:2px dashed #6f57a8"></span>container hand-off</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:2px"><span style="width:26px;height:11px;flex:none;border:1px solid #2e7d4f;box-shadow:inset 0 0 0 1.5px #fff,inset 0 0 0 2.5px #2e7d4f"></span>terminal state</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #ddd8cf;background:#fff;padding:10px 11px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.12em;color:#8d8780;margin-bottom:7px">GUARDS</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:10px;line-height:1.35;color:#3b3731">
+          <div><span style="font-family:'IBM Plex Mono',monospace;color:#a97514">deposit</span> — ORDER_CONFIRMED → GOODS_RECEIVED requires ≥20% received.</div>
+          <div><span style="font-family:'IBM Plex Mono',monospace;color:#6d675f">qc_signoff</span> — GOODS_RECEIVED → SHIPMENT_BOOKING requires client sign-off.</div>
+          <div><span style="font-family:'IBM Plex Mono',monospace;color:#a97514">balance</span> — DOCUMENTS_WITHHELD → CLOSED_OUT on final payment.</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #ddd8cf;background:#fff;padding:10px 11px;flex:1;min-height:0">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.12em;color:#8d8780;margin-bottom:7px">STUCK VS. FAILED</div>
+        <p style="margin:0 0 7px;font-size:10px;line-height:1.45;color:#3b3731;text-wrap:pretty">DOCUMENTS_WITHHELD is a <strong>stuck</strong> state, not a failure. The shipment is delivered; release of documents is blocked on money. It loops forward to CLOSED_OUT the moment the final payment clears — no re-delivery, no new order.</p>
+        <p style="margin:0;font-size:10px;line-height:1.45;color:#3b3731;text-wrap:pretty">FACTORY_CANNOT_FULFIL and QC_REJECTED are <strong>recoverable</strong> failures: each loops back one step or terminates at CANCELLED. Only CANCELLED and CLOSED_OUT are terminal.</p>
+      </div>
+    </aside>
+  </div>
+
+  <footer style="border-top:1px solid #1b1815;padding-top:9px;display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:18px;flex:1;min-height:0">
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.12em;color:#8d8780;margin-bottom:5px">TRANSITION CONTRACT</div>
+      <p style="margin:0;font-size:10px;line-height:1.45;color:#3b3731;text-wrap:pretty">Every transition is executed server-side. Clients request a target status; they never write one. Each accepted transition writes one STATUS_HISTORY row and enqueues one notification job (see <a href="#">Notification Pipeline</a>). Transitions are idempotent per <span style="font-family:'IBM Plex Mono',monospace">(order_id, to_status, request_id)</span>.</p>
+    </div>
+    <sc-if value="{{ showSchema }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.12em;color:#8d8780;margin-bottom:5px">STATUS_HISTORY</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;line-height:1.35;color:#3b3731">
+        <span>from_status</span><span style="color:#8d8780">enum, null on create</span>
+        <span>to_status</span><span style="color:#8d8780">enum, not null</span>
+        <span>changed_by</span><span style="color:#8d8780">actor id or system</span>
+        <span>reason</span><span style="color:#8d8780">text, required on exceptions</span>
+        <span>created_at</span><span style="color:#8d8780">timestamptz, append-only</span>
+      </div>
+    </div>
+    </sc-if>
+    <sc-if value="{{ showErrorContract }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.12em;color:#8d8780;margin-bottom:5px">INVALID TRANSITION · HTTP 422</div>
+      <pre style="margin:0;font-family:'IBM Plex Mono',monospace;font-size:9px;line-height:1.4;color:#3b3731;white-space:pre-wrap">{ "error": "invalid_transition",
+  "from": "IN_TRANSIT",
+  "to": "CLOSED_OUT",
+  "allowed": ["DELIVERED"] }</pre>
+      <p style="margin:5px 0 0;font-size:9.5px;line-height:1.4;color:#6d675f">A failed guard returns 422 with <span style="font-family:'IBM Plex Mono',monospace">"error":"guard_failed"</span> and the guard name. No history row is written.</p>
+    </div>
+    </sc-if>
+  </footer>
+</section>
+</doc-page>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showSchema&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Bottom panel&quot;},&quot;showErrorContract&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Bottom panel&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      showSchema: this.props.showSchema ?? true,
+      showErrorContract: this.props.showErrorContract ?? true,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; background: oklch(0.975 0.005 85); }
+  a { color: oklch(0.52 0.13 152); }
+  a:hover { color: oklch(0.42 0.11 152); }
+</style>
+</helmet>
+<div style="min-height: 100%; padding: 56px 48px 72px; background: oklch(0.975 0.005 85); color: oklch(0.26 0.008 80); font-family: 'Helvetica Neue', Helvetica, sans-serif; -webkit-font-smoothing: antialiased;">
+
+  <div style="max-width: 1700px; margin: 0 auto;">
+    <div style="display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-end; justify-content: space-between; border-bottom: 1px solid oklch(0.86 0.006 85); padding-bottom: 28px;">
+      <div style="max-width: 980px;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; letter-spacing: 2.4px; color: oklch(0.55 0.008 85); text-transform: uppercase; margin-bottom: 14px;">Phase 4 gate · architecture</div>
+        <h1 style="margin: 0 0 14px; font-size: 46px; line-height: 1.02; font-weight: 700; letter-spacing: -0.8px;">Notification Pipeline</h1>
+        <p style="margin: 0; font-size: 19px; line-height: 1.5; color: oklch(0.42 0.008 85); text-wrap: pretty;">Every status transition fans out to a background job. The diagram shows the retry and dead-letter path, which is the part the Phase&nbsp;4 gate is verified against.</p>
+      </div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.7; color: oklch(0.42 0.008 85); border: 1px dashed oklch(0.78 0.006 85); border-radius: 4px; padding: 16px 20px; max-width: 520px;">
+        <div style="color: oklch(0.26 0.008 80); font-weight: 700; margin-bottom: 6px;">docker-compose</div>
+        api and worker are <span style="color: oklch(0.26 0.008 80); font-weight: 700;">separate services</span>.<br />
+        api → enqueues only. worker → consumes only.<br />
+        dashed edge = crosses a process boundary.
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= DIAGRAM CANVAS ======================= -->
+  <div data-pipeline-wrap="1" style="max-width: 1700px; margin: 0 auto; overflow-x: auto;">
+  <div data-pipeline-canvas="1" style="position: relative; width: 1700px; height: 1420px; margin-top: 8px; transform-origin: top left;">
+
+    <!-- zone dividers -->
+    <div style="position: absolute; left: 560px; top: 96px; width: 0; height: 1300px; border-left: 1px dashed oklch(0.8 0.006 85);"></div>
+    <div style="position: absolute; left: 950px; top: 96px; width: 0; height: 1300px; border-left: 1px dashed oklch(0.8 0.006 85);"></div>
+
+    <!-- zone labels -->
+    <div style="position: absolute; left: 60px; top: 108px; font-family: 'JetBrains Mono', monospace; font-size: 15px; letter-spacing: 3px; color: oklch(0.5 0.008 85); font-weight: 500;">API PROCESS</div>
+    <div style="position: absolute; left: 600px; top: 108px; font-family: 'JetBrains Mono', monospace; font-size: 15px; letter-spacing: 3px; color: oklch(0.5 0.008 85); font-weight: 500;">REDIS / BULLMQ</div>
+    <div style="position: absolute; left: 1000px; top: 108px; font-family: 'JetBrains Mono', monospace; font-size: 15px; letter-spacing: 3px; color: oklch(0.5 0.008 85); font-weight: 500;">WORKER PROCESS</div>
+
+    <!-- connector layer -->
+    <svg width="1700" height="1420" viewBox="0 0 1700 1420" style="position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;">
+      <defs>
+        <marker id="ah-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="oklch(0.55 0.008 85)"></path>
+        </marker>
+        <marker id="ah-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="oklch(0.52 0.13 152)"></path>
+        </marker>
+        <marker id="ah-rose" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="oklch(0.55 0.16 18)"></path>
+        </marker>
+      </defs>
+
+      <path d="M270,332 L270,374" fill="none" stroke="oklch(0.55 0.008 85)" stroke-width="2" marker-end="url(#ah-grey)"></path>
+      <path d="M270,682 L270,724" fill="none" stroke="oklch(0.55 0.008 85)" stroke-width="2" marker-end="url(#ah-grey)"></path>
+      <path d="M482,790 L540,790 L540,445 L594,445" fill="none" stroke="oklch(0.55 0.008 85)" stroke-width="2" stroke-dasharray="9 7" marker-end="url(#ah-grey)"></path>
+      <path d="M892,445 L945,445 L945,250 L994,250" fill="none" stroke="oklch(0.55 0.008 85)" stroke-width="2" stroke-dasharray="9 7" marker-end="url(#ah-grey)"></path>
+      <path d="M1160,322 L1160,374" fill="none" stroke="oklch(0.55 0.008 85)" stroke-width="2" marker-end="url(#ah-grey)"></path>
+      <path d="M1322,460 L1364,460" fill="none" stroke="oklch(0.7 0.008 85)" stroke-width="2" stroke-dasharray="2 5"></path>
+
+      <!-- success -->
+      <path d="M1160,542 L1160,714" fill="none" stroke="oklch(0.52 0.13 152)" stroke-width="2.5" marker-end="url(#ah-green)"></path>
+      <!-- failure -->
+      <path d="M1160,572 L1300,572 L1300,700 L1364,700" fill="none" stroke="oklch(0.55 0.16 18)" stroke-width="2.5" stroke-dasharray="2 6" stroke-linecap="round" marker-end="url(#ah-rose)"></path>
+      <circle cx="1160" cy="572" r="4.5" fill="oklch(0.26 0.008 80)"></circle>
+      <!-- retry loop -->
+      <path d="M1440,598 L1440,160 L745,160 L745,374" fill="none" stroke="oklch(0.55 0.008 85)" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#ah-grey)"></path>
+      <!-- final attempt -->
+      <path d="M1515,802 L1515,854" fill="none" stroke="oklch(0.55 0.16 18)" stroke-width="2.5" stroke-dasharray="2 6" stroke-linecap="round" marker-end="url(#ah-rose)"></path>
+      <!-- dead letter outputs -->
+      <path d="M1515,1012 L1515,1064" fill="none" stroke="oklch(0.55 0.008 85)" stroke-width="2" marker-end="url(#ah-grey)"></path>
+      <path d="M1368,935 L1336,935 L1336,1305 L1364,1305" fill="none" stroke="oklch(0.55 0.008 85)" stroke-width="2" marker-end="url(#ah-grey)"></path>
+      <!-- edge case -->
+      <path d="M998,292 L968,292 L968,1140 L994,1140" fill="none" stroke="oklch(0.66 0.008 85)" stroke-width="2" stroke-dasharray="2 6" marker-end="url(#ah-grey)"></path>
+
+      <text x="1092" y="148" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="14" fill="oklch(0.45 0.008 85)">retry · exponential backoff {{ backoffSteps }}</text>
+      <text x="1176" y="668" font-family="JetBrains Mono, monospace" font-size="14" font-weight="700" fill="oklch(0.42 0.13 152)">SUCCESS</text>
+      <text x="1196" y="562" font-family="JetBrains Mono, monospace" font-size="14" font-weight="700" fill="oklch(0.5 0.16 18)">FAILURE · 'failed' event</text>
+      <text x="1530" y="836" font-family="JetBrains Mono, monospace" font-size="14" fill="oklch(0.5 0.16 18)">final attempt</text>
+      <text x="546" y="640" transform="rotate(-90 546 640)" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="13" fill="oklch(0.6 0.008 85)">process boundary</text>
+      <text x="937" y="340" transform="rotate(-90 937 340)" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="13" fill="oklch(0.6 0.008 85)">process boundary</text>
+    </svg>
+
+    <!-- ============ API NODES ============ -->
+    <div style="position: absolute; left: 60px; top: 182px; width: 420px; height: 150px; z-index: 1; box-sizing: border-box; background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #fff; background: oklch(0.26 0.008 80); border-radius: 3px; padding: 3px 7px;">01</span>
+        <span style="font-size: 19px; font-weight: 700;">Status transition commits</span>
+      </div>
+      <div style="font-size: 15px; line-height: 1.45; color: oklch(0.42 0.008 85);">Writes a <span style="font-family: 'JetBrains Mono', monospace;">STATUS_HISTORY</span> row inside the same transaction.</div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; color: oklch(0.5 0.008 85);">ORDER · CONTAINER · PRODUCTION_ORDER<br />STOCK_RECORD · DOCUMENT · PAYMENT</div>
+    </div>
+
+    <div style="position: absolute; left: 60px; top: 380px; width: 420px; height: 302px; z-index: 1; box-sizing: border-box; background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #fff; background: oklch(0.26 0.008 80); border-radius: 3px; padding: 3px 7px;">02</span>
+        <span style="font-size: 19px; font-weight: 700;">Insert <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px;">NOTIFICATIONS</span> row</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: oklch(0.5 0.008 85);">
+        <span style="border: 1px solid oklch(0.86 0.006 85); border-radius: 999px; padding: 2px 9px;">append-only</span>
+        <span style="border: 1px solid oklch(0.78 0.11 75); color: oklch(0.5 0.12 70); border-radius: 999px; padding: 2px 9px;">status = PENDING</span>
+      </div>
+      <div style="border-top: 1px solid oklch(0.92 0.006 85); padding-top: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.85; color: oklch(0.3 0.008 80);">
+        event_type · entity_type · entity_id<br />
+        recipient_type · recipient_id<br />
+        channel <span style="color: oklch(0.55 0.008 85);">(EMAIL | SMS | WHATSAPP | IN_APP)</span><br />
+        client_visible<br />
+        status · retry_count<br />
+        scheduled_at · sent_at · last_error
+      </div>
+    </div>
+
+    <div style="position: absolute; left: 60px; top: 724px; width: 420px; height: 132px; z-index: 1; box-sizing: border-box; background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #fff; background: oklch(0.26 0.008 80); border-radius: 3px; padding: 3px 7px;">03</span>
+        <span style="font-size: 19px; font-weight: 700;">Enqueue job</span>
+      </div>
+      <div style="font-size: 15px; line-height: 1.45; color: oklch(0.42 0.008 85);">On queue <span style="font-family: 'JetBrains Mono', monospace;">"notifications"</span>, carrying only <span style="font-family: 'JetBrains Mono', monospace; color: oklch(0.26 0.008 80);">notification_id</span>. The API does no dispatching.</div>
+    </div>
+
+    <!-- ============ REDIS NODES ============ -->
+    <div style="position: absolute; left: 600px; top: 380px; width: 292px; height: 130px; z-index: 1; box-sizing: border-box; background: oklch(0.26 0.008 80); color: oklch(0.97 0.005 85); border-radius: 5px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: oklch(0.26 0.008 80); background: oklch(0.97 0.005 85); border-radius: 3px; padding: 3px 7px;">04</span>
+        <span style="font-size: 19px; font-weight: 700;">BullMQ queue</span>
+      </div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: oklch(0.82 0.01 85);">queue: notifications</div>
+    </div>
+
+    <div style="position: absolute; left: 600px; top: 560px; width: 292px; height: 252px; z-index: 1; box-sizing: border-box; background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 18px 20px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: 2px; color: oklch(0.55 0.008 85); margin-bottom: 14px;">JOB OPTIONS</div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.8; color: oklch(0.3 0.008 80);">
+        attempts: <span style="font-weight: 700;">5</span><br />
+        backoff: exponential<br />
+        <span style="color: oklch(0.55 0.008 85);">base delay {{ backoffBaseLabel }} ms</span><br />
+        <span style="color: oklch(0.55 0.008 85);">{{ backoffSteps }}</span><br />
+        removeOnComplete: 1h / 1000<br />
+        removeOnFail: <span style="font-weight: 700; color: oklch(0.5 0.16 18);">false</span>
+      </div>
+      <div style="margin-top: 12px; border-top: 1px solid oklch(0.92 0.006 85); padding-top: 10px; font-size: 13.5px; line-height: 1.45; color: oklch(0.45 0.008 85);">Failed jobs are kept for inspection.</div>
+    </div>
+
+    <!-- ============ WORKER NODES ============ -->
+    <div style="position: absolute; left: 1000px; top: 182px; width: 322px; height: 140px; z-index: 1; box-sizing: border-box; background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #fff; background: oklch(0.26 0.008 80); border-radius: 3px; padding: 3px 7px;">05</span>
+        <span style="font-size: 19px; font-weight: 700;">Worker picks up job</span>
+      </div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.75; color: oklch(0.3 0.008 80);">status = <span style="color: oklch(0.5 0.12 70); font-weight: 700;">RETRYING</span><br />retry_count = attemptsMade</div>
+    </div>
+
+    <div style="position: absolute; left: 1000px; top: 380px; width: 322px; height: 162px; z-index: 1; box-sizing: border-box; background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #fff; background: oklch(0.26 0.008 80); border-radius: 3px; padding: 3px 7px;">06</span>
+        <span style="font-size: 19px; font-weight: 700;">Dispatch to provider</span>
+      </div>
+      <div style="font-size: 15px; line-height: 1.45; color: oklch(0.42 0.008 85);">Routed by <span style="font-family: 'JetBrains Mono', monospace;">channel</span> — email, SMS, WhatsApp or in-app.</div>
+    </div>
+
+    <div style="position: absolute; left: 1370px; top: 380px; width: 292px; height: 162px; z-index: 1; box-sizing: border-box; background: oklch(0.955 0.006 85); border: 1px dashed oklch(0.78 0.006 85); border-radius: 5px; padding: 16px 18px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: 2px; color: oklch(0.55 0.008 85); margin-bottom: 10px;">SIDE NOTE</div>
+      <div style="font-size: 14.5px; line-height: 1.5; color: oklch(0.36 0.008 85); text-wrap: pretty;">The provider call is currently a <span style="font-weight: 700;">stub</span>. The retry and dead-letter bookkeeping around it is real — that is what the gate verifies.</div>
+    </div>
+
+    <div style="position: absolute; left: 1000px; top: 714px; width: 322px; height: 152px; z-index: 1; box-sizing: border-box; background: oklch(0.33 0.07 154); color: oklch(0.96 0.02 150); border-radius: 5px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+        <span style="font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">SENT</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 1.5px; color: oklch(0.82 0.06 150);">TERMINAL</span>
+      </div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.8;">status = SENT<br />sent_at = now()<br />last_error = null <span style="color: oklch(0.8 0.05 150);">(cleared)</span></div>
+    </div>
+
+    <div style="position: absolute; left: 1370px; top: 600px; width: 292px; height: 202px; z-index: 1; box-sizing: border-box; background: #fff; border: 1.5px solid oklch(0.78 0.1 18); border-radius: 5px; padding: 18px 20px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: oklch(0.5 0.16 18); margin-bottom: 8px;">FAILED</div>
+      <div style="font-size: 14px; line-height: 1.45; color: oklch(0.45 0.008 85); margin-bottom: 10px;">Not the final attempt.</div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.8; color: oklch(0.3 0.008 80);">status = FAILED<br />retry_count = attemptsMade<br />last_error = error.message</div>
+      <div style="margin-top: 12px; border-top: 1px solid oklch(0.92 0.006 85); padding-top: 10px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: oklch(0.5 0.008 85);">↺ requeued, next backoff</div>
+    </div>
+
+    <div style="position: absolute; left: 1370px; top: 860px; width: 292px; height: 152px; z-index: 1; box-sizing: border-box; background: oklch(0.32 0.09 18); color: oklch(0.96 0.02 20); border-radius: 5px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+        <span style="font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">DEAD_LETTER</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 1.5px; color: oklch(0.82 0.06 20);">TERMINAL</span>
+      </div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.8;">attemptsMade &gt;= attempts<br />last_error kept</div>
+    </div>
+
+    <div style="position: absolute; left: 1370px; top: 1064px; width: 292px; height: 142px; z-index: 1; box-sizing: border-box; background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 16px 18px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: 2px; color: oklch(0.55 0.008 85); margin-bottom: 10px;">OUTPUT · UI</div>
+      <div style="font-size: 15px; font-weight: 700; margin-bottom: 6px;">Office Manager dashboard</div>
+      <div style="font-size: 14px; line-height: 1.45; color: oklch(0.42 0.008 85);">Failed-job indicators showing <span style="font-family: 'JetBrains Mono', monospace;">retry_count</span> and <span style="font-family: 'JetBrains Mono', monospace;">last_error</span>.</div>
+    </div>
+
+    <div style="position: absolute; left: 1370px; top: 1240px; width: 292px; height: 122px; z-index: 1; box-sizing: border-box; background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 16px 18px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: 2px; color: oklch(0.55 0.008 85); margin-bottom: 10px;">OUTPUT · REDIS</div>
+      <div style="font-size: 14px; line-height: 1.45; color: oklch(0.42 0.008 85);">Job stays in the BullMQ <span style="font-family: 'JetBrains Mono', monospace;">failed</span> set — <span style="font-family: 'JetBrains Mono', monospace;">removeOnFail: false</span>.</div>
+    </div>
+
+    <div style="position: absolute; left: 1000px; top: 1064px; width: 322px; height: 142px; z-index: 1; box-sizing: border-box; background: oklch(0.945 0.004 85); border: 1px solid oklch(0.88 0.006 85); border-radius: 5px; padding: 16px 18px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: 2px; color: oklch(0.58 0.008 85); margin-bottom: 10px;">EDGE CASE</div>
+      <div style="font-size: 14.5px; line-height: 1.5; color: oklch(0.4 0.008 85); text-wrap: pretty;"><span style="font-family: 'JetBrains Mono', monospace;">notification_id</span> no longer exists → worker logs a warning and drops the job. <span style="font-weight: 700;">No retry.</span></div>
+    </div>
+
+  </div>
+  </div>
+
+  <!-- ======================= BOTTOM PANELS ======================= -->
+  <div style="max-width: 1700px; margin: 24px auto 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 28px; align-items: start;">
+
+    <sc-if value="{{ showRetention }}" hint-placeholder-val="{{ true }}">
+      <div style="background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 22px 24px;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: 2px; color: oklch(0.55 0.008 85); margin-bottom: 12px;">SECOND QUEUE · SAME WORKER</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; margin-bottom: 12px;">queue: retention</div>
+        <div style="font-size: 15px; line-height: 1.55; color: oklch(0.4 0.008 85); text-wrap: pretty;">A scheduled cleanup job removes <span style="font-family: 'JetBrains Mono', monospace;">CLIENT_DOCUMENTS</span> references whose <span style="font-family: 'JetBrains Mono', monospace;">retention_expires_at</span> has passed — <span style="font-weight: 700;">without deleting the underlying file from storage.</span></div>
+      </div>
+    </sc-if>
+
+    <div style="background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 22px 24px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: 2px; color: oklch(0.55 0.008 85); margin-bottom: 16px;">NOTIFICATIONS.STATUS</div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="flex: 0 0 132px; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; text-align: center; padding: 5px 0; border-radius: 3px; background: oklch(0.94 0.004 85); color: oklch(0.42 0.008 85); border: 1px solid oklch(0.86 0.006 85);">PENDING</span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);">Row written, job enqueued, not yet picked up.</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="flex: 0 0 132px; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; text-align: center; padding: 5px 0; border-radius: 3px; background: oklch(0.96 0.05 80); color: oklch(0.45 0.12 70); border: 1px solid oklch(0.85 0.09 78);">RETRYING</span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);">In flight on the worker, attempt in progress.</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="flex: 0 0 132px; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; text-align: center; padding: 5px 0; border-radius: 3px; background: oklch(0.33 0.07 154); color: oklch(0.96 0.02 150);">SENT</span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);">Delivered. Terminal — <span style="font-family: 'JetBrains Mono', monospace;">sent_at</span> set.</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="flex: 0 0 132px; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; text-align: center; padding: 5px 0; border-radius: 3px; background: oklch(0.96 0.04 20); color: oklch(0.47 0.16 18); border: 1px solid oklch(0.85 0.08 18);">FAILED</span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);">Attempt failed, more attempts remain.</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="flex: 0 0 132px; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; text-align: center; padding: 5px 0; border-radius: 3px; background: oklch(0.32 0.09 18); color: oklch(0.96 0.02 20);">DEAD_LETTER</span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);">All 5 attempts exhausted. Terminal, error kept.</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="background: #fff; border: 1px solid oklch(0.86 0.006 85); border-radius: 5px; padding: 22px 24px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: 2px; color: oklch(0.55 0.008 85); margin-bottom: 16px;">LINE STYLES</div>
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="flex: 0 0 72px; height: 0; border-top: 2.5px solid oklch(0.52 0.13 152);"></span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);"><span style="font-weight: 700; color: oklch(0.26 0.008 80);">Solid green</span> — success path</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="flex: 0 0 72px; height: 0; border-top: 2.5px dotted oklch(0.55 0.16 18);"></span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);"><span style="font-weight: 700; color: oklch(0.26 0.008 80);">Dotted rose</span> — failure path</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="flex: 0 0 72px; display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 18px; color: oklch(0.55 0.008 85); line-height: 1;">↺<span style="flex: 1; height: 0; border-top: 2.5px solid oklch(0.55 0.008 85);"></span></span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);"><span style="font-weight: 700; color: oklch(0.26 0.008 80);">Looping grey</span> — retry with exponential backoff</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="flex: 0 0 72px; height: 0; border-top: 2.5px dashed oklch(0.55 0.008 85);"></span>
+          <span style="font-size: 14.5px; color: oklch(0.4 0.008 85);"><span style="font-weight: 700; color: oklch(0.26 0.008 80);">Dashed</span> — process boundary crossing (API → Redis → Worker)</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;backoffMs&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:5000,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:500,&quot;max&quot;:60000,&quot;step&quot;:500,&quot;unit&quot;:&quot;ms&quot;,&quot;section&quot;:&quot;Queue&quot;},&quot;showRetention&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Panels&quot;}}">
+class Component extends DCLogic {
+  findCanvas() {
+    const all = document.querySelectorAll('div');
+    for (let i = 0; i < all.length; i++) {
+      if (all[i].style && all[i].style.width === '1700px' && all[i].style.position === 'relative') return all[i];
+    }
+    return null;
+  }
+
+  fit = () => {
+    const canvas = this.findCanvas();
+    const wrap = canvas && canvas.parentElement;
+    if (!wrap || !canvas) { this._retry(); return; }
+    const avail = wrap.clientWidth || (wrap.parentElement ? wrap.parentElement.clientWidth : 0);
+    if (!avail || avail <= 0) { this._retry(); return; }
+    if (avail === this._lastW) return;
+    this._lastW = avail;
+    const scale = Math.min(1, avail / 1700);
+    canvas.style.transform = "scale(" + scale + ")";
+    wrap.style.height = Math.ceil(1420 * scale + 8) + "px";
+  };
+
+  _retry = () => {};
+
+  componentDidMount() {
+    this.fit();
+    requestAnimationFrame(this.fit);
+    // self-healing: the canvas may not exist yet during streaming, and the
+    // wrapper width can change at any time. Poll + observe, never give up.
+    this._poll = setInterval(this.fit, 200);
+    this._mo = new MutationObserver(this.fit);
+    this._mo.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", this.fit);
+  }
+
+  componentDidUpdate() { this.fit(); }
+
+  componentWillUnmount() {
+    clearInterval(this._poll);
+    if (this._mo) this._mo.disconnect();
+    window.removeEventListener("resize", this.fit);
+  }
+
+  renderVals() {
+    const base = Number(this.props.backoffMs ?? 5000);
+    const attempts = 5;
+    const fmt = (ms) => (ms % 1000 === 0 ? (ms / 1000) + "s" : (ms / 1000).toFixed(1) + "s");
+    const steps = [];
+    for (let i = 0; i < attempts - 1; i++) steps.push(fmt(base * Math.pow(2, i)));
+    return {
+      backoffSteps: "≈ " + steps.join(" → "),
+      backoffBaseLabel: String(base),
+      showRetention: this.props.showRetention ?? true
+    };
+  }
+}
+</script>
+</body>
+</html>
