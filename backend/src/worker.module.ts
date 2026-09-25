@@ -3,8 +3,15 @@ import { ConfigModule } from '@nestjs/config';
 
 import { validateWorkerEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { NotificationChannels } from './jobs/delivery/notification-channels';
+import { NotificationDelivery } from './jobs/delivery/notification-delivery';
 import { JobsModule } from './jobs/jobs.module';
 import { NotificationsProcessor } from './jobs/processors/notifications.processor';
+import {
+  RetentionProcessor,
+  RetentionScheduler,
+} from './jobs/processors/retention.processor';
+import { ClientDocumentRetentionService } from './modules/client-documents/client-document-retention.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 
@@ -26,6 +33,13 @@ import { RedisModule } from './redis/redis.module';
     JobsModule,
     HealthModule,
   ],
-  providers: [NotificationsProcessor],
+  providers: [
+    NotificationChannels,
+    NotificationDelivery,
+    NotificationsProcessor,
+    ClientDocumentRetentionService,
+    RetentionProcessor,
+    RetentionScheduler,
+  ],
 })
 export class WorkerModule {}

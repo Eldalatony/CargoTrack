@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import { ReadStream, createReadStream, existsSync } from 'node:fs';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /** The subset of a Multer upload this service needs. */
@@ -14,6 +20,14 @@ export interface UploadedFile {
 }
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+};
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -58,9 +72,30 @@ export class FileStorageService {
   }
 
   /**
-   * Best-effort removal of the underlying bytes. Retention cleanup in Phase 4
-   * deliberately drops the reference without calling this — the record goes,
-   * the archived file stays.
+   * Streams a stored file back out. The caller decides whether the viewer may
+   * have it — for DOCUMENTS that is the release gate, never this service.
+   */
+  open(fileRef: string): { stream: ReadStream; contentType: string } {
+    const path = resolve(this.root, fileRef);
+
+    // file_ref only ever comes from our own rows, but a path that resolves
+    // outside the storage root is refused regardless of where it came from.
+    if (!path.startsWith(resolve(this.root) + sep) || !existsSync(path)) {
+      throw new NotFoundException('The stored file is missing');
+    }
+
+    return {
+      stream: createReadStream(path),
+      contentType:
+        CONTENT_TYPES[extname(fileRef).toLowerCase()] ??
+        'application/octet-stream',
+    };
+  }
+
+  /**
+   * Best-effort removal of the underlying bytes. The client document
+   * retention sweep deliberately drops the reference without calling this —
+   * the record goes, the archived file stays.
    */
   async remove(fileRef: string): Promise<void> {
     try {

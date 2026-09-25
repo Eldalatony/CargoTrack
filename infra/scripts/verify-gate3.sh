@@ -106,14 +106,19 @@ expect_code() {
 cleanup() {
   docker compose exec -T postgres psql -U "${POSTGRES_USER:-cargotrack}" \
     -d "${POSTGRES_DB:-cargotrack}" -q >/dev/null 2>&1 <<SQL
-DELETE FROM status_history WHERE entity_id IN (
+CREATE TEMP TABLE gate_entities AS
   SELECT id FROM containers WHERE container_ref = '${CONTAINER_REF}'
   UNION ALL
   SELECT id FROM orders WHERE client_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%')
   UNION ALL
   SELECT id FROM production_orders WHERE order_id IN (
     SELECT id FROM orders WHERE client_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%'))
-);
+  UNION ALL
+  SELECT id FROM payments WHERE order_id IN (
+    SELECT id FROM orders WHERE client_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%'));
+DELETE FROM status_history WHERE entity_id IN (SELECT id FROM gate_entities);
+DELETE FROM notifications WHERE entity_id IN (SELECT id FROM gate_entities)
+  OR recipient_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%');
 DELETE FROM containers WHERE container_ref = '${CONTAINER_REF}';
 DELETE FROM qc_inspections WHERE production_order_id IN (
   SELECT id FROM production_orders WHERE order_id IN (
@@ -130,6 +135,21 @@ SQL
 
 move_order() {
   api POST "/api/orders/$1/status" "$MANAGER_TOKEN" "{\"status\":\"$2\"}"
+}
+
+# Walks a shipped order to CLOSED_OUT, clearing the 8,000 balance on
+# delivery — close-out is payment-gated since Phase 4.
+close_out_order() {
+  local order="$1"
+
+  for s in ROUTE_DECISION IN_TRANSIT DELIVERED; do
+    move_order "$order" "$s" >/dev/null
+  done
+
+  api POST /api/payments "$MANAGER_TOKEN" \
+    "{\"orderId\":\"${order}\",\"paymentType\":\"BALANCE\",\"amount\":8000,\"currency\":\"USD\",\"paidAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >/dev/null
+
+  move_order "$order" CLOSED_OUT >/dev/null
 }
 
 move_container() {
@@ -150,7 +170,9 @@ ready_order() {
   }" >/dev/null
   order=$(field id)
 
-  move_order "$order" ORDER_CONFIRMED >/dev/null
+  # 20% of 10,000 taken on confirmation; goods-in waits for it (Phase 4).
+  api POST "/api/orders/${order}/status" "$MANAGER_TOKEN" \
+    '{"status":"ORDER_CONFIRMED","deposit":{"amount":2000}}' >/dev/null
 
   api POST /api/production-orders "$MANAGER_TOKEN" "{
     \"orderId\": \"${order}\", \"supplierId\": \"${SUPPLIER_ID}\",
@@ -219,12 +241,16 @@ SUPPLIER_ID=$(field id)
 ORDER_A=$(ready_order "$CLIENT_A" "Rattan dining chairs" 120 0.085 4.2)
 ORDER_B=$(ready_order "$CLIENT_B" "Teak side tables" 98 0.1 12)
 
+# The status goes into a variable first: a $(…) in check's arguments would
+# run before $? is expanded and replace the result being reported.
 code=$(api GET "/api/orders/${ORDER_A}" "$MANAGER_TOKEN")
-[ "$(field status)" = "SHIPMENT_BOOKING" ]
-check "client A order ready to ship" "$(field status)" $?
+status=$(field status)
+[ "$status" = "SHIPMENT_BOOKING" ]
+check "client A order ready to ship" "$status" $?
 code=$(api GET "/api/orders/${ORDER_B}" "$MANAGER_TOKEN")
-[ "$(field status)" = "SHIPMENT_BOOKING" ]
-check "client B order ready to ship" "$(field status)" $?
+status=$(field status)
+[ "$status" = "SHIPMENT_BOOKING" ]
+check "client B order ready to ship" "$status" $?
 
 echo ""
 echo "1. Open for Allocation"
@@ -310,9 +336,7 @@ echo "5. Closed — only after every allocated order has closed out"
 code=$(move_container CLOSED)
 expect_code "blocked: both orders still open" 422 "$code"
 
-for s in ROUTE_DECISION IN_TRANSIT DELIVERED CLOSED_OUT; do
-  move_order "$ORDER_A" "$s" >/dev/null
-done
+close_out_order "$ORDER_A"
 
 code=$(move_container CLOSED)
 expect_code "blocked: client B has not closed out" 422 "$code"
@@ -320,9 +344,7 @@ expect_code "blocked: client B has not closed out" 422 "$code"
 body | grep -q "$ORDER_B"
 check "error names the open order" "${ORDER_B}" $?
 
-for s in ROUTE_DECISION IN_TRANSIT DELIVERED CLOSED_OUT; do
-  move_order "$ORDER_B" "$s" >/dev/null
-done
+close_out_order "$ORDER_B"
 
 code=$(move_container CLOSED)
 expect_code "-> CLOSED" 200 "$code"

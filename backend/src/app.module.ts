@@ -15,9 +15,12 @@ import { ClientsModule } from './modules/clients/clients.module';
 import { ContainerAllocationsModule } from './modules/container-allocations/container-allocations.module';
 import { ContainersModule } from './modules/containers/containers.module';
 import { CustomsAgentsModule } from './modules/customs-agents/customs-agents.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 import { FreightProvidersModule } from './modules/freight-providers/freight-providers.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OrderItemsModule } from './modules/order-items/order-items.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { ProductionOrdersModule } from './modules/production-orders/production-orders.module';
 import { QcInspectionsModule } from './modules/qc-inspections/qc-inspections.module';
 import { StatusHistoryModule } from './modules/status-history/status-history.module';
@@ -35,8 +38,6 @@ import { RedisModule } from './redis/redis.module';
  * The two APP_GUARD entries are the whole authorization story: every route is
  * authenticated unless it says @Public(), and role-restricted where it says
  * @Roles(). Adding a controller cannot accidentally add an open endpoint.
- *
- * Phase 4 adds documents, payments and notifications.
  */
 @Module({
   imports: [
@@ -72,6 +73,10 @@ import { RedisModule } from './redis/redis.module';
     TransitLegsModule,
     WarehousesModule,
     StockRecordsModule,
+
+    DocumentsModule,
+    PaymentsModule,
+    NotificationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -11,9 +11,14 @@ export type QueueName = (typeof ALL_QUEUES)[number];
 
 /**
  * Retry policy for the notification pipeline (roadmap Phase 4).
- * After the final attempt BullMQ moves the job to its failed set, and the
- * processor marks the NOTIFICATIONS row DEAD_LETTER so it surfaces in the
- * Office Manager dashboard.
+ * 5 attempts, backing off 5s → 10s → 20s → 40s. After the final attempt the
+ * NOTIFICATIONS row is DEAD_LETTER and BullMQ keeps the job in its failed set
+ * for inspection.
+ *
+ * Every job's id is its NOTIFICATIONS row id. That makes enqueueing
+ * idempotent — BullMQ ignores an add for a job id it already holds — which is
+ * what lets the relay re-offer a row it is unsure about without ever
+ * delivering it twice.
  */
 export const NOTIFICATION_JOB_OPTIONS = {
   attempts: 5,
@@ -21,3 +26,8 @@ export const NOTIFICATION_JOB_OPTIONS = {
   removeOnComplete: { age: 3_600, count: 1_000 },
   removeOnFail: false,
 };
+
+/** Daily at 03:00 — quiet hours, and once a day is all a retention date needs. */
+export const RETENTION_SCHEDULER_ID = 'client-document-retention';
+export const RETENTION_CRON = '0 3 * * *';
+export const RETENTION_JOB_NAME = 'purge-expired-client-documents';

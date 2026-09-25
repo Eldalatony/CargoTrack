@@ -80,6 +80,30 @@ describe('Gate 2 — the order lifecycle over the API', () => {
       .send({ status, ...(reason ? { reason } : {}) });
   }
 
+  /** Confirms with the 20% deposit (24,000 x 20%), as the office does. */
+  async function confirm(orderId: string): Promise<void> {
+    await http(app)
+      .post(`/api/orders/${orderId}/status`)
+      .set(asManager())
+      .send({ status: OrderStatus.ORDER_CONFIRMED, deposit: { amount: 4800 } })
+      .expect(200);
+  }
+
+  /** Raises the 19,200 balance invoice and marks it paid. */
+  async function payBalance(orderId: string): Promise<void> {
+    const invoice = await http(app)
+      .post('/api/payments')
+      .set(asManager())
+      .send({ orderId, paymentType: 'BALANCE', amount: 19200, currency: 'USD' })
+      .expect(201);
+
+    await http(app)
+      .post(`/api/payments/${(invoice.body as { id: string }).id}/paid`)
+      .set(asManager())
+      .send({})
+      .expect(200);
+  }
+
   /** Production placed, received, inspected, and signed off by the client. */
   async function clearQualityControl(orderId: string): Promise<void> {
     const batch = await http(app)
@@ -152,9 +176,10 @@ describe('Gate 2 — the order lifecycle over the API', () => {
     });
 
     it('walks all 8 states to CLOSED_OUT', async () => {
-      await moveTo(orderId, OrderStatus.ORDER_CONFIRMED).expect(200);
+      await confirm(orderId);
 
       await clearQualityControl(orderId);
+      await payBalance(orderId);
 
       for (const status of [
         OrderStatus.GOODS_RECEIVED,
@@ -251,7 +276,7 @@ describe('Gate 2 — the order lifecycle over the API', () => {
     it('refuses to book a shipment before QC is signed off', async () => {
       const other = await placeOrder();
 
-      await moveTo(other, OrderStatus.ORDER_CONFIRMED).expect(200);
+      await confirm(other);
 
       // Production received, but nobody signed the QC sheet.
       const batch = await http(app)
@@ -336,7 +361,7 @@ describe('Gate 2 — the order lifecycle over the API', () => {
     it('records the reason on the withheld-documents branch', async () => {
       const orderId = await placeOrder();
 
-      await moveTo(orderId, OrderStatus.ORDER_CONFIRMED).expect(200);
+      await confirm(orderId);
       await clearQualityControl(orderId);
 
       for (const status of [
@@ -363,8 +388,16 @@ describe('Gate 2 — the order lifecycle over the API', () => {
         'Balance payment not received within terms.',
       );
 
-      // And it rejoins the happy path once the money arrives.
-      await moveTo(orderId, OrderStatus.CLOSED_OUT).expect(200);
+      // And it rejoins the happy path the moment the money arrives — the
+      // payment closes it out; nobody has to come back and move it.
+      await payBalance(orderId);
+
+      const order = await prisma.order.findUniqueOrThrow({
+        where: { id: orderId },
+      });
+
+      expect(order.status).toBe(OrderStatus.CLOSED_OUT);
+      expect(order.closedAt).not.toBeNull();
     });
   });
 
@@ -458,7 +491,7 @@ describe('Gate 2 — the order lifecycle over the API', () => {
     });
 
     it('refuses to edit the manifest once the goods exist', async () => {
-      await moveTo(orderId, OrderStatus.ORDER_CONFIRMED).expect(200);
+      await confirm(orderId);
       await clearQualityControl(orderId);
       await moveTo(orderId, OrderStatus.GOODS_RECEIVED).expect(200);
 

@@ -102,12 +102,17 @@ expect_code() {
 cleanup() {
   docker compose exec -T postgres psql -U "${POSTGRES_USER:-cargotrack}" \
     -d "${POSTGRES_DB:-cargotrack}" -q >/dev/null 2>&1 <<SQL
-DELETE FROM status_history WHERE entity_id IN (
+CREATE TEMP TABLE gate_entities AS
   SELECT id FROM orders WHERE client_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%')
   UNION ALL
   SELECT id FROM production_orders WHERE order_id IN (
     SELECT id FROM orders WHERE client_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%'))
-);
+  UNION ALL
+  SELECT id FROM payments WHERE order_id IN (
+    SELECT id FROM orders WHERE client_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%'));
+DELETE FROM status_history WHERE entity_id IN (SELECT id FROM gate_entities);
+DELETE FROM notifications WHERE entity_id IN (SELECT id FROM gate_entities)
+  OR recipient_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%');
 DELETE FROM qc_inspections WHERE production_order_id IN (
   SELECT id FROM production_orders WHERE order_id IN (
     SELECT id FROM orders WHERE client_id IN (SELECT id FROM clients WHERE company_name LIKE '${MARKER}%')));
@@ -216,8 +221,11 @@ expect_code "status is not a PATCH field" 400 "$code"
 
 echo ""
 echo "2. Order Confirmed, then production and QC"
-code=$(api POST "/api/orders/${ORDER_ID}/status" "$MANAGER_TOKEN" '{"status":"ORDER_CONFIRMED"}')
-expect_code "ORDER_PLACED -> ORDER_CONFIRMED" 200 "$code"
+# The 20% deposit is recorded in the same call (Phase 4); goods cannot be
+# received until it has cleared.
+code=$(api POST "/api/orders/${ORDER_ID}/status" "$MANAGER_TOKEN" \
+  '{"status":"ORDER_CONFIRMED","deposit":{"amount":4800}}')
+expect_code "ORDER_PLACED -> ORDER_CONFIRMED (+4,800 deposit)" 200 "$code"
 
 code=$(api POST /api/production-orders "$MANAGER_TOKEN" "{
   \"orderId\": \"${ORDER_ID}\",
@@ -254,11 +262,19 @@ expect_code "client signs the QC sheet" 200 "$code"
 
 echo ""
 echo "3. The rest of the walk to Closed Out"
-for next_status in SHIPMENT_BOOKING ROUTE_DECISION IN_TRANSIT DELIVERED CLOSED_OUT; do
+for next_status in SHIPMENT_BOOKING ROUTE_DECISION IN_TRANSIT DELIVERED; do
   code=$(api POST "/api/orders/${ORDER_ID}/status" "$MANAGER_TOKEN" \
     "{\"status\":\"${next_status}\"}")
   expect_code "-> ${next_status}" 200 "$code"
 done
+
+# Closing out is payment-gated (Phase 4): the 19,200 balance clears first.
+code=$(api POST /api/payments "$MANAGER_TOKEN" \
+  "{\"orderId\":\"${ORDER_ID}\",\"paymentType\":\"BALANCE\",\"amount\":19200,\"currency\":\"USD\",\"paidAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}")
+expect_code "balance of 19,200 received" 201 "$code"
+
+code=$(api POST "/api/orders/${ORDER_ID}/status" "$MANAGER_TOKEN" '{"status":"CLOSED_OUT"}')
+expect_code "-> CLOSED_OUT" 200 "$code"
 
 code=$(api GET "/api/orders/${ORDER_ID}" "$MANAGER_TOKEN")
 status=$(field status)

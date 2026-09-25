@@ -25,10 +25,11 @@ import { QueryProductionOrdersDto } from './dto/query-production-orders.dto';
 import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
 
 /**
- * The order must be confirmed before a factory is engaged. On the state
- * diagram this is the deposit gate: roughly 20% clears, then production
- * starts. Phase 4 adds the payment half of that check here; the ordering half
- * is enforced now.
+ * The order must be confirmed before a factory is engaged. The money half of
+ * that — the deposit clearing — is gated where the state diagram draws it, on
+ * ORDER_CONFIRMED -> GOODS_RECEIVED (OrdersService), since production can be
+ * booked while the transfer is still in flight but the goods cannot be taken
+ * in until it lands.
  */
 const PLACEABLE_ORDER_STATUSES: readonly OrderStatus[] = [
   OrderStatus.ORDER_CONFIRMED,

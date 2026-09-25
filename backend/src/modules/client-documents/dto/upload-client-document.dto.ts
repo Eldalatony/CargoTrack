@@ -10,8 +10,8 @@ export class UploadClientDocumentDto {
   docType!: ClientDocumentType;
 
   /**
-   * When this reference must be purged. Phase 4 runs the scheduled cleanup;
-   * capturing the date at upload time is what makes that job possible.
+   * When this reference must be purged. The worker's nightly retention sweep
+   * removes it after this date; the stored file itself is kept.
    */
   @IsOptional()
   @IsDateString()

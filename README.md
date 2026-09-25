@@ -7,13 +7,15 @@ orders, supplier production and QC, container consolidation, transit legs,
 warehousing, document version chains, payments, and a retrying notification
 pipeline.
 
-> **Status:** Phase 3 complete — **Gate 3 met**. Containers walk their 5-state
-> lifecycle over the API, consolidating several clients' orders into one box
-> under a capacity guard tested at the boundary; transit routes record each
-> stop; a container closes only once every order in it has closed out.
-> Warehousing tracks stock holds and releases. Documents, payments and
-> notifications are Phase 4. See `Information/Cargo_Track_Roadmap.docx` for the
-> full 7-phase plan.
+> **Status:** Phase 4 complete — **Gate 4 met**. The backend is feature-complete
+> for the domain. Payments gate the order lifecycle: the deposit must clear
+> before goods are received, and the balance before close-out. Shipping
+> documents are withheld from the client until the balance clears, re-checked
+> against the payment ledger on every request and proven by a test that sweeps
+> every GET route in the app. Every status change notifies through a
+> retrying, dead-lettering BullMQ pipeline, and a scheduled job enforces
+> retention on client documents. Phase 5 is the frontend. See
+> `Information/Cargo_Track_Roadmap.docx` for the full 7-phase plan.
 
 ---
 
@@ -68,6 +70,7 @@ Gates are binary and verified by running the scenario, not by inspection:
 ./infra/scripts/verify-gate1.sh --clean    # wipe volumes, rebuild, then check
 ./infra/scripts/verify-gate2.sh            # against a running stack
 ./infra/scripts/verify-gate3.sh            # against a running stack
+./infra/scripts/verify-gate4.sh            # against a running stack (~90 s)
 ```
 
 **Gate 1** asserts all five services healthy, exactly 19 tables present, Redis
@@ -91,6 +94,22 @@ departure until a transit stop is planned, sailed, walked through the stop at
 Jebel Ali (arrival before departure, enforced), and arrived. Closing it is
 refused while either order is open, refused again with only one closed out,
 and accepted once both are. The `status_history` chain has 5 rows with no gaps.
+
+**Gate 4** confirms an order with its 20% deposit in the same call, then shows
+a second order refused at goods-in with no deposit (`guard: deposit`). It walks
+the first order to delivery, uploads its bill of lading and raises the balance
+invoice. As the client, the document read has no `file_ref` key at all, only
+`withheld: true` and "8000.00 USD outstanding", and the download is a 403. It
+then shows close-out refused (`guard: balance`) and moves the order to
+`DOCUMENTS_WITHHELD`. Marking the balance paid releases the document, stamps
+`released_to_client_at`, serves the file, and closes the order out by itself.
+The script also runs the gate's automated tests: the unit tests, the guard that
+fails the build if they are ever skipped, and the e2e sweep of every GET route.
+It then waits for the live worker to exhaust all 5 attempts on a mailbox under
+the reserved `.invalid` TLD (`FAILED` between attempts, then `DEAD_LETTER` with
+`retry_count` 5 and `last_error` kept), finds it in the dashboard view and
+re-queues it. Finally it runs the retention sweep and confirms that the expired
+passport reference is gone while the stored file is not.
 
 The same ground is covered from inside the container by the e2e suite:
 
@@ -141,6 +160,13 @@ curl -s http://localhost:4000/api/orders -H "Authorization: Bearer $TOKEN"
 | `/production-orders`, `POST /production-orders/:id/status` | manager writes; client reads |
 | `/qc-inspections`, `PATCH /qc-inspections/:id/sign-off` | manager writes; client reads |
 | `GET /status-history?entityType=&entityId=` | manager only |
+| `POST /documents` (multipart, `supersedesId` for a new version) | manager |
+| `GET /documents`, `/documents/:id`, `/:id/versions`, `/:id/file` | manager; client reads their own, `file_ref` and file only once paid |
+| `POST /payments`, `POST /payments/:id/paid`, `DELETE /payments/:id` | manager |
+| `GET /payments`, `GET /orders/:id/settlement` | manager; client sees only money between them and the office |
+| `GET /notifications` | manager sees all; client sees their own client-visible messages |
+| `GET /notifications/summary`, `POST /notifications/:id/retry` | manager only |
+| `POST /client-documents/retention/run` | manager only (the worker also runs it nightly) |
 
 Two roles, and the difference between them is enforced in two places. Role
 checks live in a global guard; row-level scoping lives in the services and is
@@ -166,12 +192,51 @@ the transition table from the state diagram runs. Rules worth knowing:
   produce or ship.
 - **No QC sign-off, no shipment.** The client signs the QC sheet in person;
   until `PATCH /qc-inspections/:id/sign-off` has been called for the order, it
-  cannot leave `GOODS_RECEIVED`. Phase 4 hangs the balance invoice off the same
-  check.
+  cannot leave `GOODS_RECEIVED`, and no balance invoice can be raised.
 - **Volume and weight are derived**, never submitted: order totals roll up from
   the line items on every change, in Decimal arithmetic.
+- **Payment guards** sit where the state diagram draws them. A failed guard
+  returns 422 with `error: "guard_failed"` and the guard's name.
+  - `deposit`: `ORDER_CONFIRMED → GOODS_RECEIVED` needs the order's deposit
+    percentage cleared. The deposit can be recorded in the confirming call
+    (`{"status":"ORDER_CONFIRMED","deposit":{"amount":2000}}`), in the same
+    transaction.
+  - `balance`: `→ CLOSED_OUT` from `DELIVERED` or `DOCUMENTS_WITHHELD` needs
+    the order paid in full.
+  - `qc_signoff`: a balance invoice needs a signed QC sheet.
+- **`DOCUMENTS_WITHHELD` releases itself.** The payment that clears the balance
+  releases the order's documents and moves it to `CLOSED_OUT` in the same
+  transaction.
 
 `docs/adr/0001-server-side-status-transitions.md` records why.
+
+### Payments and the document release gate
+
+A payment with no `paid_at` is an invoice that has been raised; setting
+`paid_at` (`POST /payments/:id/paid`) means the money arrived. Settlement counts
+client money only: deposit plus balance, less refunds, in the order's own
+currency. A client payment in any other currency is refused rather than
+silently ignored.
+
+Whether a client may have a document is decided on every request, from the
+live ledger. `released_to_client_at` records when the documents went out, but
+it is not what grants access. If a refund reopens the balance, `file_ref`
+disappears from the client's responses again. A withheld response leaves
+`file_ref` out entirely and carries `withheld: true` with the outstanding
+amount instead. Container-level documents cover several clients and are never
+released to any one of them. See `docs/adr/0004-document-release-gate-at-read-time.md`.
+
+### Notifications
+
+Every `status_history` row writes its NOTIFICATIONS rows in the same
+transaction (an outbox). The API relays committed `PENDING` rows to BullMQ, with
+the row id as the job id so an enqueue can never be duplicated, and the worker
+delivers them. There are 5 attempts with exponential backoff from 5 s. The row
+reads `RETRYING` during each attempt, `FAILED` between attempts, and
+`DEAD_LETTER` once attempts run out, with `retry_count` and `last_error` kept.
+Delivery is still a stub that logs a line per message, but its failure modes are
+real: an address under the reserved `.invalid` TLD bounces, and a recipient that
+no longer exists is dead-lettered at once. See `docs/adr/0005-notification-outbox.md`.
 
 ## Repository layout
 
@@ -192,20 +257,22 @@ the transition table from the state diagram runs. Rules worth knowing:
 │   │   │   └── storage/          Uploads land on disk, refs land in the DB
 │   │   ├── config/          Env validation — the only place env is read
 │   │   ├── health/          Terminus indicators for Postgres and Redis
-│   │   ├── jobs/            BullMQ queues and processors
+│   │   ├── jobs/            BullMQ queues, processors, delivery (worker side)
 │   │   ├── modules/         One module per domain entity
 │   │   │                    auth, users, clients, client-documents,
 │   │   │                    suppliers, freight-providers, customs-agents,
 │   │   │                    orders, order-items, production-orders,
 │   │   │                    qc-inspections, status-history, containers,
 │   │   │                    container-allocations, transit-legs,
-│   │   │                    warehouses, stock-records
+│   │   │                    warehouses, stock-records, documents,
+│   │   │                    payments, notifications
 │   │   ├── app.setup.ts     Pipes, CORS, prefix — shared by main and the e2e suite
 │   │   ├── main.ts          API entrypoint
 │   │   └── worker.ts        Worker entrypoint
 │   ├── docker-entrypoint.sh Runs migrations before the API starts
 │   └── test/
-│       ├── e2e/             The Gate 2 and Gate 3 walks and client scoping, over HTTP
+│       ├── e2e/             Gates 2–4 over HTTP: lifecycles, scoping, payments,
+│       │                    the document gate's route sweep, the retry pipeline
 │       └── fixtures/        Boots the real app; builds two clients and a manager
 ├── frontend/                Next.js app
 │   └── src/app/
@@ -215,7 +282,7 @@ the transition table from the state diagram runs. Rules worth knowing:
 │       └── health/          Liveness route probed by Compose
 ├── infra/
 │   ├── docker/postgres/init/    Init SQL run once on first volume create
-│   └── scripts/                 bootstrap.sh, verify-gate1/2/3.sh
+│   └── scripts/                 bootstrap.sh, verify-gate1/2/3/4.sh
 ├── docs/
 │   ├── adr/                 Architecture decision records
 │   └── diagrams/            Mermaid sources for the ERD and state diagrams
@@ -308,7 +375,10 @@ fix(documents): withhold file_ref when balance payment is unpaid
 - [x] **Gate 3** — shipping lifecycle with consolidated allocation: container
       opened, shared by two clients, transited, arrived and closed only after
       every allocated order closed out; capacity guard tested at the boundary
-- [ ] **Gate 4** — document withholding gate proven by automated test
+- [x] **Gate 4** — business rules verified: document withholding gate proven by
+      an automated test that cannot be disabled, deposit recorded on
+      confirmation, balance payment triggers release, retry pipeline cycles
+      through failure, retry and dead letter
 - [ ] **Gate 5** — end-to-end user journey through the UI
 - [ ] **Gate 6** — launch ready
 

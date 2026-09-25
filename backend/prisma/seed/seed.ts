@@ -703,7 +703,7 @@ async function main(): Promise<void> {
   await prisma.notification.createMany({
     data: [
       {
-        eventType: 'order.closed_out',
+        eventType: 'ORDER.CLOSED_OUT',
         entityType: EntityType.ORDER,
         entityId: closedOrder.id,
         recipientType: RecipientType.CLIENT,
@@ -713,7 +713,7 @@ async function main(): Promise<void> {
         sentAt: new Date('2026-06-02T14:41:00Z'),
       },
       {
-        eventType: 'container.arrived',
+        eventType: 'CONTAINER.ARRIVED',
         entityType: EntityType.CONTAINER,
         entityId: closedContainer.id,
         recipientType: RecipientType.CLIENT,
@@ -724,7 +724,7 @@ async function main(): Promise<void> {
       },
       // Exhausted its retries — surfaces in the Office Manager dashboard.
       {
-        eventType: 'order.documents_withheld',
+        eventType: 'ORDER.DOCUMENTS_WITHHELD',
         entityType: EntityType.ORDER,
         entityId: withheldOrder.id,
         recipientType: RecipientType.CLIENT,
@@ -736,7 +736,7 @@ async function main(): Promise<void> {
         scheduledAt: new Date('2026-06-10T09:01:00Z'),
       },
       {
-        eventType: 'qc.awaiting_signoff',
+        eventType: 'PRODUCTION_ORDER.RECEIVED',
         entityType: EntityType.PRODUCTION_ORDER,
         entityId: activeProduction.id,
         recipientType: RecipientType.USER,

@@ -162,14 +162,40 @@ export async function destroyActors(
     where: { orderId: { in: orderIds } },
     select: { id: true },
   });
+  const payments = await prisma.payment.findMany({
+    where: { orderId: { in: orderIds } },
+    select: { id: true },
+  });
+  const documents = await prisma.document.findMany({
+    where: { orderId: { in: orderIds } },
+    select: { id: true },
+  });
+
+  const entityIds = [
+    ...orderIds,
+    ...[...productionOrders, ...payments, ...documents].map((row) => row.id),
+  ];
+  const userIds = [
+    actors.managerId,
+    actors.clientAUserId,
+    actors.clientBUserId,
+  ];
 
   await prisma.statusHistory.deleteMany({
+    where: { entityId: { in: entityIds } },
+  });
+  // NOTIFICATIONS has no foreign keys (it is an append-only log), so nothing
+  // cascades into it. Anything about these entities, or addressed to these
+  // people, goes by hand.
+  await prisma.notification.deleteMany({
     where: {
-      entityId: {
-        in: [...orderIds, ...productionOrders.map((batch) => batch.id)],
-      },
+      OR: [
+        { entityId: { in: entityIds } },
+        { recipientId: { in: [...clientIds, ...userIds] } },
+      ],
     },
   });
+  // Payments and documents cascade with their order.
   await prisma.qcInspection.deleteMany({
     where: { productionOrderId: { in: productionOrders.map((b) => b.id) } },
   });
@@ -181,13 +207,7 @@ export async function destroyActors(
   await prisma.clientDocument.deleteMany({
     where: { clientId: { in: clientIds } },
   });
-  await prisma.user.deleteMany({
-    where: {
-      id: {
-        in: [actors.managerId, actors.clientAUserId, actors.clientBUserId],
-      },
-    },
-  });
+  await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.supplier.deleteMany({ where: { id: actors.supplierId } });
 }

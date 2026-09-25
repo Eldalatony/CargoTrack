@@ -37,6 +37,15 @@ const apiSchema = baseSchema.extend({
     )
     .default('1d'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  /**
+   * How often the API offers committed NOTIFICATIONS rows to the queue.
+   * 0 disables the relay (rows stay PENDING until something flushes them).
+   */
+  NOTIFICATION_RELAY_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(1000),
 });
 
 const workerSchema = baseSchema.extend({

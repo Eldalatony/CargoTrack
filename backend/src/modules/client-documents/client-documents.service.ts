@@ -29,7 +29,9 @@ export type ClientDocumentSummary = Omit<ClientDocument, 'fileRef'>;
  *   - That reference is not part of any response. Knowing a client has a
  *     passport on file is unremarkable; handing out the pointer to it is not.
  *
- * Phase 4 adds the retention cleanup that consumes `retention_expires_at`.
+ * Past its `retention_expires_at` a reference is treated as gone even before
+ * the nightly sweep deletes it (ClientDocumentRetentionService), so the
+ * answer never depends on when the job last ran.
  */
 @Injectable()
 export class ClientDocumentsService {
@@ -71,7 +73,13 @@ export class ClientDocumentsService {
     await this.assertClientExists(clientId);
 
     return this.prisma.clientDocument.findMany({
-      where: { clientId },
+      where: {
+        clientId,
+        OR: [
+          { retentionExpiresAt: null },
+          { retentionExpiresAt: { gt: new Date() } },
+        ],
+      },
       orderBy: { uploadedAt: 'desc' },
       omit: HIDE_FILE_REF,
     });

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { EntityType, Prisma, StatusHistory } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { writeNotifications } from '../notifications/notification-outbox';
 
 export interface StatusChange {
   entityType: EntityType;
@@ -23,16 +24,20 @@ export interface StatusChange {
  *
  * The table is append-only. There is no update or delete path here, and none
  * should be added — corrections are new rows.
+ *
+ * Every row also fans out to NOTIFICATIONS in the same transaction. Putting
+ * that here, rather than in each service, is what makes "every status
+ * transition enqueues a job" true of transitions nobody has written yet.
  */
 @Injectable()
 export class StatusHistoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  record(
+  async record(
     tx: Prisma.TransactionClient,
     change: StatusChange,
   ): Promise<StatusHistory> {
-    return tx.statusHistory.create({
+    const row = await tx.statusHistory.create({
       data: {
         entityType: change.entityType,
         entityId: change.entityId,
@@ -42,6 +47,10 @@ export class StatusHistoryService {
         reason: change.reason ?? null,
       },
     });
+
+    await writeNotifications(tx, change);
+
+    return row;
   }
 
   /** Oldest first — this is read as a story, not as a feed. */

@@ -6,9 +6,12 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
+  CounterpartyType,
   EntityType,
   Order,
   OrderStatus,
+  PaymentDirection,
+  PaymentType,
   Prisma,
   ProductionOrderStatus,
   QcOutcome,
@@ -22,12 +25,17 @@ import {
   orderStateMachine,
 } from '../../common/state-machines/order.state-machine';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { PAYMENT_PAID, guardFailed } from '../payments/payment-status';
+import { Settlement, loadSettlement } from '../payments/settlement';
 import { StatusHistoryService } from '../status-history/status-history.service';
 import {
   CreateOrderDto,
   DEPOSIT_PERCENTAGE_DEFAULT,
 } from './dto/create-order.dto';
-import { ChangeOrderStatusDto } from './dto/change-order-status.dto';
+import {
+  ChangeOrderStatusDto,
+  ConfirmationDepositDto,
+} from './dto/change-order-status.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { orderTotals } from './order-totals';
@@ -136,7 +144,16 @@ export class OrdersService {
     return paginate(data, total, query);
   }
 
-  async findOne(id: string, user: AuthenticatedUser): Promise<Order> {
+  /**
+   * The order plus where it stands with the client's money. Settlement is
+   * safe to show a client — it only ever counts their own payments — which
+   * is what lets the portal say "4,800 USD outstanding" beside a withheld
+   * document instead of just a missing button.
+   */
+  async findOne(
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<Order & { settlement: Settlement }> {
     const order = await this.prisma.order.findFirst({
       where: { id, ...scopeWhere(user) },
       include: DETAIL_INCLUDE,
@@ -146,7 +163,9 @@ export class OrdersService {
       throw new NotFoundException(`Order ${id} not found`);
     }
 
-    return order;
+    const settlement = await loadSettlement(this.prisma, id);
+
+    return { ...order, settlement: settlement! };
   }
 
   async update(id: string, dto: UpdateOrderDto): Promise<Order> {
@@ -190,42 +209,105 @@ export class OrdersService {
   ): Promise<Order> {
     const order = await this.requireOrder(id);
 
+    if (dto.deposit) {
+      if (dto.status !== OrderStatus.ORDER_CONFIRMED) {
+        throw new BadRequestException(
+          'A deposit can only be recorded together with status ORDER_CONFIRMED',
+        );
+      }
+
+      if (dto.deposit.paidAt && new Date(dto.deposit.paidAt) > new Date()) {
+        throw new BadRequestException('A deposit cannot be paid in the future');
+      }
+    }
+
     orderStateMachine.assert(order.status, dto.status);
     await this.assertPreconditionsFor(order, dto.status);
 
     return this.prisma.$transaction(async (tx) => {
-      // Compare-and-swap against the status we validated. Two managers
-      // advancing the same order at once would otherwise both pass the checks
-      // above and write two history rows for what is really one move.
-      const { count } = await tx.order.updateMany({
-        where: { id, status: order.status },
-        data: {
-          status: dto.status,
-          ...(dto.status === OrderStatus.CLOSED_OUT
-            ? { closedAt: new Date() }
-            : {}),
-        },
-      });
+      await this.applyTransition(tx, order, dto.status, user, dto.reason);
 
-      if (count === 0) {
-        throw new ConflictException(
-          `Order ${id} changed status while this request was in flight. Re-read it and retry against its current status`,
-        );
+      if (dto.deposit) {
+        await this.recordConfirmationDeposit(tx, order, dto.deposit, user);
       }
-
-      await this.statusHistory.record(tx, {
-        entityType: EntityType.ORDER,
-        entityId: id,
-        fromStatus: order.status,
-        toStatus: dto.status,
-        changedBy: user.id,
-        reason: dto.reason,
-      });
 
       return tx.order.findUniqueOrThrow({
         where: { id },
         include: DETAIL_INCLUDE,
       });
+    });
+  }
+
+  /**
+   * Writes one approved transition: the status column and its history row,
+   * in the caller's transaction. Preconditions are the caller's job — this is
+   * shared with PaymentsService, which moves DOCUMENTS_WITHHELD to CLOSED_OUT
+   * the moment the final payment clears, and has already proved the money.
+   */
+  async applyTransition(
+    tx: Prisma.TransactionClient,
+    order: Pick<Order, 'id' | 'status'>,
+    to: OrderStatus,
+    user: AuthenticatedUser,
+    reason?: string | null,
+  ): Promise<void> {
+    orderStateMachine.assert(order.status, to);
+
+    // Compare-and-swap against the status that was validated. Two managers
+    // advancing the same order at once would otherwise both pass their checks
+    // and write two history rows for what is really one move.
+    const { count } = await tx.order.updateMany({
+      where: { id: order.id, status: order.status },
+      data: {
+        status: to,
+        ...(to === OrderStatus.CLOSED_OUT ? { closedAt: new Date() } : {}),
+      },
+    });
+
+    if (count === 0) {
+      throw new ConflictException(
+        `Order ${order.id} changed status while this request was in flight. Re-read it and retry against its current status`,
+      );
+    }
+
+    await this.statusHistory.record(tx, {
+      entityType: EntityType.ORDER,
+      entityId: order.id,
+      fromStatus: order.status,
+      toStatus: to,
+      changedBy: user.id,
+      reason,
+    });
+  }
+
+  /** "Deposit recorded on order confirmation" — one transaction, both facts. */
+  private async recordConfirmationDeposit(
+    tx: Prisma.TransactionClient,
+    order: Order,
+    deposit: ConfirmationDepositDto,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const payment = await tx.payment.create({
+      data: {
+        orderId: order.id,
+        paymentType: PaymentType.DEPOSIT,
+        direction: PaymentDirection.INBOUND,
+        counterpartyType: CounterpartyType.CLIENT,
+        counterpartyId: order.clientId,
+        amount: new Prisma.Decimal(deposit.amount),
+        currency: order.currency,
+        paidAt: deposit.paidAt ? new Date(deposit.paidAt) : new Date(),
+        reference: deposit.reference ?? null,
+      },
+    });
+
+    await this.statusHistory.record(tx, {
+      entityType: EntityType.PAYMENT,
+      entityId: payment.id,
+      fromStatus: null,
+      toStatus: PAYMENT_PAID,
+      changedBy: user.id,
+      reason: 'Deposit recorded on order confirmation',
     });
   }
 
@@ -273,6 +355,17 @@ export class OrdersService {
     }
 
     if (to === OrderStatus.GOODS_RECEIVED) {
+      // The deposit gate, where the state diagram draws it: roughly a fifth
+      // clears before the goods are taken in.
+      const settlement = await this.settlementOf(order.id);
+
+      if (!settlement.depositMet) {
+        throw guardFailed(
+          'deposit',
+          `The deposit must clear before goods are received: ${settlement.depositRequired.toFixed(2)} ${settlement.currency} required, ${settlement.depositReceived.toFixed(2)} received`,
+        );
+      }
+
       const received = await this.prisma.productionOrder.count({
         where: { orderId: order.id, status: ProductionOrderStatus.RECEIVED },
       });
@@ -288,9 +381,43 @@ export class OrdersService {
       await this.assertQcSignedOff(order.id);
     }
 
-    // DELIVERED -> CLOSED_OUT is payment-gated on the state diagram. Payments
-    // arrive in Phase 4, which is where that check lands (Gate 4), alongside
-    // the document release it controls.
+    const balanceGated =
+      order.status === OrderStatus.DELIVERED ||
+      order.status === OrderStatus.DOCUMENTS_WITHHELD;
+
+    if (to === OrderStatus.CLOSED_OUT && balanceGated) {
+      // The balance gate. Closing out is when the documents go to the client,
+      // so it waits for the same money the document release gate does.
+      // (QC_REJECTED -> CLOSED_OUT is the refund path and owes nothing.)
+      const settlement = await this.settlementOf(order.id);
+
+      if (!settlement.paidInFull) {
+        throw guardFailed(
+          'balance',
+          `The order cannot close out with ${settlement.balanceDue.toFixed(2)} ${settlement.currency} outstanding. Record the balance payment, or move it to DOCUMENTS_WITHHELD`,
+        );
+      }
+    }
+
+    if (to === OrderStatus.DOCUMENTS_WITHHELD) {
+      const settlement = await this.settlementOf(order.id);
+
+      if (settlement.paidInFull) {
+        throw new UnprocessableEntityException(
+          'This order is paid in full — there is nothing to withhold documents for. Close it out instead',
+        );
+      }
+    }
+  }
+
+  private async settlementOf(orderId: string): Promise<Settlement> {
+    const settlement = await loadSettlement(this.prisma, orderId);
+
+    if (!settlement) {
+      throw new NotFoundException(`Order ${orderId} not found`);
+    }
+
+    return settlement;
   }
 
   /**
@@ -298,7 +425,7 @@ export class OrdersService {
    * and nothing downstream of that signature may happen without it. No
    * sign-off, no balance invoice — and no shipment booking either.
    *
-   * Phase 4 calls this same check before raising a balance invoice.
+   * PaymentsService calls this same check before raising a balance invoice.
    */
   async assertQcSignedOff(orderId: string): Promise<void> {
     const signedOff = await this.prisma.qcInspection.count({
@@ -310,7 +437,8 @@ export class OrdersService {
     });
 
     if (signedOff === 0) {
-      throw new UnprocessableEntityException(
+      throw guardFailed(
+        'qc_signoff',
         'A passed QC inspection signed off by the client is required before this order can proceed',
       );
     }

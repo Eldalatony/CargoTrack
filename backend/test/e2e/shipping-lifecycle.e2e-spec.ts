@@ -53,6 +53,9 @@ describe('Gate 3 — the shipping lifecycle over the API', () => {
         ],
       },
     });
+    await prisma.notification.deleteMany({
+      where: { entityId: { in: [...containerIds, ...stockRecordIds] } },
+    });
     // Allocations and transit legs cascade with their container.
     await prisma.container.deleteMany({ where: { id: { in: containerIds } } });
     // Stock records cascade with the order items destroyActors removes.
