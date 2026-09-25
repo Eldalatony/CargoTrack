@@ -7,15 +7,16 @@ orders, supplier production and QC, container consolidation, transit legs,
 warehousing, document version chains, payments, and a retrying notification
 pipeline.
 
-> **Status:** Phase 4 complete — **Gate 4 met**. The backend is feature-complete
-> for the domain. Payments gate the order lifecycle: the deposit must clear
-> before goods are received, and the balance before close-out. Shipping
-> documents are withheld from the client until the balance clears, re-checked
-> against the payment ledger on every request and proven by a test that sweeps
-> every GET route in the app. Every status change notifies through a
-> retrying, dead-lettering BullMQ pipeline, and a scheduled job enforces
-> retention on client documents. Phase 5 is the frontend. See
-> `Information/Cargo_Track_Roadmap.docx` for the full 7-phase plan.
+> **Status:** Phase 5 complete — **Gate 5 met**. The Office Manager dashboard
+> and the client portal cover the whole journey. An order can be placed,
+> confirmed with its deposit, produced, QC'd and signed off, shipped, invoiced,
+> paid and closed out without leaving the UI. A client signs in to see only
+> their own orders, a shipment timeline, and their documents; until the balance
+> is paid, a document's download button is disabled, with the amount
+> outstanding shown next to it. The UI is deliberately unstyled (black on
+> white, browser defaults) and awaits its visual design. Phase 6 is polish and
+> deployment. See `Information/Cargo_Track_Roadmap.docx` for the full 7-phase
+> plan.
 
 ---
 
@@ -110,6 +111,25 @@ the reserved `.invalid` TLD (`FAILED` between attempts, then `DEAD_LETTER` with
 `retry_count` 5 and `last_error` kept), finds it in the dashboard view and
 re-queues it. Finally it runs the retention sweep and confirms that the expired
 passport reference is gone while the stored file is not.
+
+**Gate 5** is a UI gate, so it is walked in the browser at
+http://localhost:3000:
+
+1. As `manager@cargotrack.example`: **Place order** for a client with one item.
+   On the order page, move it to *Order confirmed*; the deposit field is
+   prefilled with 20%. Place a production order, mark it *In production*,
+   *Ready* and *Received*, record a passed inspection and the client's
+   sign-off, then move the order through to *Delivered*. *Closed out* is
+   refused here by the balance guard. Upload a bill of lading and raise the
+   balance invoice without paying it.
+2. As that client (e.g. `hassan@niletrading.example` for Nile Trading): only
+   their own orders are listed. Another client's order URL answers "not
+   found", and `/manager` redirects to the portal. On the order, the bill of
+   lading's **Download** button is disabled, with "Pending: Withheld until the
+   balance payment clears (… outstanding)" next to it.
+3. As the manager again: **Mark paid** on the balance invoice. The document
+   switches to *Released*, and *Move to Closed out* succeeds. All 8 timeline
+   steps are ticked.
 
 The same ground is covered from inside the container by the e2e suite:
 
@@ -238,6 +258,33 @@ Delivery is still a stub that logs a line per message, but its failure modes are
 real: an address under the reserved `.invalid` TLD bounces, and a recipient that
 no longer exists is dead-lettered at once. See `docs/adr/0005-notification-outbox.md`.
 
+## The frontend
+
+Two areas behind one login: `/manager` for the Office Manager and `/portal` for
+clients. Signing in sends each role to its own area, and the wrong area
+redirects. The role only decides which screens are shown. What data comes back
+is decided by the API, which scopes every client request to their own rows.
+
+It is **unstyled on purpose**: semantic HTML, black on white, browser defaults,
+and about 50 lines of base CSS in `src/app/globals.css`. The visual design is
+done separately. Things a design should know:
+
+- Shared building blocks live in `src/components/ui/`, so restyling them
+  restyles every screen. Tailwind is still installed (add `@import
+  "tailwindcss";` back to `globals.css` to use it).
+- States are exposed as attributes to style against: `data-withheld` on
+  document rows, `data-state="done|current|upcoming"` on timeline steps,
+  `data-status` on notification rows, `role="alert"` on errors.
+- A withheld document keeps its row and a disabled button with the reason
+  beside it. That is the "visibly blocked" requirement, not a missing button.
+- Server rules are not duplicated. Buttons offer the moves the state diagram
+  allows, and a refusal (guard, precondition) comes back as the server's own
+  message under the button.
+
+Data fetching is TanStack Query. Every write refetches, so a payment that
+releases documents updates the settlement, the documents and the history
+together.
+
 ## Repository layout
 
 ```
@@ -274,12 +321,23 @@ no longer exists is dead-lettered at once. See `docs/adr/0005-notification-outbo
 │       ├── e2e/             Gates 2–4 over HTTP: lifecycles, scoping, payments,
 │       │                    the document gate's route sweep, the retry pipeline
 │       └── fixtures/        Boots the real app; builds two clients and a manager
-├── frontend/                Next.js app
-│   └── src/app/
-│       ├── (auth)/          Login
-│       ├── (manager)/       Office Manager — full access
-│       ├── (portal)/        Client — read-only, own orders only
-│       └── health/          Liveness route probed by Compose
+├── frontend/                Next.js app (unstyled — structure only)
+│   └── src/
+│       ├── app/
+│       │   ├── (auth)/login/        Sign-in
+│       │   ├── (manager)/manager/   Orders, order detail, place order,
+│       │   │                        containers, notifications, clients, suppliers
+│       │   ├── (portal)/portal/     Client: my orders, order timeline, messages
+│       │   └── health/              Liveness route probed by Compose
+│       ├── components/
+│       │   ├── ui/          Section, Field, QueryState, ErrorMessage — restyle here
+│       │   ├── orders/      Status timeline, history, settlement (shared)
+│       │   ├── documents/   Document table with the withheld-download state
+│       │   └── manager/     Order status actions, production/QC, payments, uploads
+│       └── lib/
+│           ├── api/         fetch client (bearer token), response types
+│           ├── auth/        Auth context and role-aware route guard
+│           └── lifecycles.ts  Display copy of the transition tables
 ├── infra/
 │   ├── docker/postgres/init/    Init SQL run once on first volume create
 │   └── scripts/                 bootstrap.sh, verify-gate1/2/3/4.sh
@@ -379,7 +437,9 @@ fix(documents): withhold file_ref when balance payment is unpaid
       an automated test that cannot be disabled, deposit recorded on
       confirmation, balance payment triggers release, retry pipeline cycles
       through failure, retry and dead letter
-- [ ] **Gate 5** — end-to-end user journey through the UI
+- [x] **Gate 5** — end-to-end user journey through the UI: an order placed and
+      closed out by the Office Manager in the browser; a client sees only their
+      own orders; document download visibly blocked until the balance is paid
 - [ ] **Gate 6** — launch ready
 
 ## Design artifacts
