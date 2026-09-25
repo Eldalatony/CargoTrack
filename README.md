@@ -7,11 +7,13 @@ orders, supplier production and QC, container consolidation, transit legs,
 warehousing, document version chains, payments, and a retrying notification
 pipeline.
 
-> **Status:** Phase 2 complete — **Gate 2 met**. An order walks all 8 states
-> from Order Placed to Closed Out over the API alone, invalid transitions are
-> refused with 422, and every step leaves a `status_history` row. Auth, parties,
-> orders, production and QC are live; shipping and containers are Phase 3. See
-> `Information/Cargo_Track_Roadmap.docx` for the full 7-phase plan.
+> **Status:** Phase 3 complete — **Gate 3 met**. Containers walk their 5-state
+> lifecycle over the API, consolidating several clients' orders into one box
+> under a capacity guard tested at the boundary; transit routes record each
+> stop; a container closes only once every order in it has closed out.
+> Warehousing tracks stock holds and releases. Documents, payments and
+> notifications are Phase 4. See `Information/Cargo_Track_Roadmap.docx` for the
+> full 7-phase plan.
 
 ---
 
@@ -65,6 +67,7 @@ Gates are binary and verified by running the scenario, not by inspection:
 ./infra/scripts/verify-gate1.sh            # against a running stack
 ./infra/scripts/verify-gate1.sh --clean    # wipe volumes, rebuild, then check
 ./infra/scripts/verify-gate2.sh            # against a running stack
+./infra/scripts/verify-gate3.sh            # against a running stack
 ```
 
 **Gate 1** asserts all five services healthy, exactly 19 tables present, Redis
@@ -79,6 +82,15 @@ and a message naming the legal targets, that `status` cannot be set through
 `PATCH`, that shipment booking is blocked until QC is signed off, that the
 `status_history` chain has 8 rows with no gaps, and that a client can reach
 none of it. It cleans up after itself, so it is safe to re-run.
+
+**Gate 3** walks two different clients' orders to `SHIPMENT_BOOKING` and
+consolidates them into one 20 CBM transit container. The first order takes
+10.2 CBM; the second is offered at 9.801 CBM and refused (boundary + 0.001),
+then accepted at 9.8 — exactly 100%. The container is booked, refused
+departure until a transit stop is planned, sailed, walked through the stop at
+Jebel Ali (arrival before departure, enforced), and arrived. Closing it is
+refused while either order is open, refused again with only one closed out,
+and accepted once both are. The `status_history` chain has 5 rows with no gaps.
 
 The same ground is covered from inside the container by the e2e suite:
 
@@ -185,13 +197,15 @@ the transition table from the state diagram runs. Rules worth knowing:
 │   │   │                    auth, users, clients, client-documents,
 │   │   │                    suppliers, freight-providers, customs-agents,
 │   │   │                    orders, order-items, production-orders,
-│   │   │                    qc-inspections, status-history
+│   │   │                    qc-inspections, status-history, containers,
+│   │   │                    container-allocations, transit-legs,
+│   │   │                    warehouses, stock-records
 │   │   ├── app.setup.ts     Pipes, CORS, prefix — shared by main and the e2e suite
 │   │   ├── main.ts          API entrypoint
 │   │   └── worker.ts        Worker entrypoint
 │   ├── docker-entrypoint.sh Runs migrations before the API starts
 │   └── test/
-│       ├── e2e/             The Gate 2 walk and client scoping, over HTTP
+│       ├── e2e/             The Gate 2 and Gate 3 walks and client scoping, over HTTP
 │       └── fixtures/        Boots the real app; builds two clients and a manager
 ├── frontend/                Next.js app
 │   └── src/app/
@@ -201,7 +215,7 @@ the transition table from the state diagram runs. Rules worth knowing:
 │       └── health/          Liveness route probed by Compose
 ├── infra/
 │   ├── docker/postgres/init/    Init SQL run once on first volume create
-│   └── scripts/                 bootstrap.sh, verify-gate1.sh
+│   └── scripts/                 bootstrap.sh, verify-gate1/2/3.sh
 ├── docs/
 │   ├── adr/                 Architecture decision records
 │   └── diagrams/            Mermaid sources for the ERD and state diagrams
@@ -291,7 +305,9 @@ fix(documents): withhold file_ref when balance payment is unpaid
 - [x] **Gate 2** — order lifecycle covered end to end via API: all 8 states,
       invalid transitions refused with 422, `status_history` written at every
       step
-- [ ] **Gate 3** — shipping lifecycle with consolidated allocation
+- [x] **Gate 3** — shipping lifecycle with consolidated allocation: container
+      opened, shared by two clients, transited, arrived and closed only after
+      every allocated order closed out; capacity guard tested at the boundary
 - [ ] **Gate 4** — document withholding gate proven by automated test
 - [ ] **Gate 5** — end-to-end user journey through the UI
 - [ ] **Gate 6** — launch ready

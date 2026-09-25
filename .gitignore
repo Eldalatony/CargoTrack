@@ -30,7 +30,10 @@ backend/prisma/generated/
 backend/src/generated/
 
 # --- Runtime / uploads -----------------------------------------------------
-storage/
+# Anchored: a bare `storage/` also matched backend/src/common/storage, the
+# source of StorageModule, which kept it out of every clean clone.
+/storage/
+backend/storage/
 uploads/
 *.sqlite
 *.sqlite3

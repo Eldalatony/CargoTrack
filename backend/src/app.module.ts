@@ -12,6 +12,8 @@ import { JobsModule } from './jobs/jobs.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClientDocumentsModule } from './modules/client-documents/client-documents.module';
 import { ClientsModule } from './modules/clients/clients.module';
+import { ContainerAllocationsModule } from './modules/container-allocations/container-allocations.module';
+import { ContainersModule } from './modules/containers/containers.module';
 import { CustomsAgentsModule } from './modules/customs-agents/customs-agents.module';
 import { FreightProvidersModule } from './modules/freight-providers/freight-providers.module';
 import { OrderItemsModule } from './modules/order-items/order-items.module';
@@ -19,8 +21,11 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { ProductionOrdersModule } from './modules/production-orders/production-orders.module';
 import { QcInspectionsModule } from './modules/qc-inspections/qc-inspections.module';
 import { StatusHistoryModule } from './modules/status-history/status-history.module';
+import { StockRecordsModule } from './modules/stock-records/stock-records.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
+import { TransitLegsModule } from './modules/transit-legs/transit-legs.module';
 import { UsersModule } from './modules/users/users.module';
+import { WarehousesModule } from './modules/warehouses/warehouses.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 
@@ -31,7 +36,6 @@ import { RedisModule } from './redis/redis.module';
  * authenticated unless it says @Public(), and role-restricted where it says
  * @Roles(). Adding a controller cannot accidentally add an open endpoint.
  *
- * Phase 3 adds containers, allocations, transit legs and warehousing here;
  * Phase 4 adds documents, payments and notifications.
  */
 @Module({
@@ -62,6 +66,12 @@ import { RedisModule } from './redis/redis.module';
     OrderItemsModule,
     ProductionOrdersModule,
     QcInspectionsModule,
+
+    ContainersModule,
+    ContainerAllocationsModule,
+    TransitLegsModule,
+    WarehousesModule,
+    StockRecordsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
