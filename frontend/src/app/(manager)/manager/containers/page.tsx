@@ -1,167 +1,78 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
-import { useState } from "react";
+import { ContainerIcon, PlusIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 
-import { ErrorMessage } from "@/components/ui/error-message";
-import { Field } from "@/components/ui/field";
-import { QueryState } from "@/components/ui/query-state";
-import { Section } from "@/components/ui/section";
-import { api } from "@/lib/api/client";
-import type { ContainerSummary, Paginated } from "@/lib/api/types";
-import { decimal, label } from "@/lib/format";
-import { useAction } from "@/lib/use-action";
+import { DataTable } from "@/components/common/data-table";
+import { EmptyState } from "@/components/common/empty-state";
+import { LoadingLines, QueryState } from "@/components/common/query-state";
+import { containerColumns } from "@/components/containers/container-columns";
+import { OpenContainerForm } from "@/components/containers/open-container-form";
+import { PageContainer, PageHeader } from "@/components/layout/page";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { containers } from "@/lib/api/queries";
 
 export default function ContainersPage() {
-  const containers = useQuery({
-    queryKey: ["containers"],
-    queryFn: () => api<Paginated<ContainerSummary>>("/containers?limit=100"),
-  });
+  const router = useRouter();
+  const list = useQuery(containers.list());
 
   return (
-    <>
-      <h1>Containers</h1>
-      <QueryState query={containers}>
-        {({ data }) => (
-          <table>
-            <thead>
-              <tr>
-                <th>Reference</th>
-                <th>Type</th>
-                <th>Route</th>
-                <th>Status</th>
-                <th>CBM used</th>
-                <th>Weight used</th>
-                <th>Orders</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.length === 0 && (
-                <tr>
-                  <td colSpan={8}>No containers.</td>
-                </tr>
-              )}
-              {data.map((container) => (
-                <tr key={container.id}>
-                  <td>{container.containerRef}</td>
-                  <td>{container.containerType}</td>
-                  <td>
-                    {container.originPort} → {container.destinationPort} (
-                    {label(container.routeType)})
-                  </td>
-                  <td>{label(container.status)}</td>
-                  <td>
-                    {decimal(container.utilization.allocatedCbm)} /{" "}
-                    {decimal(container.capacityCbm)} (
-                    {container.utilization.cbmPercent}%)
-                  </td>
-                  <td>
-                    {decimal(container.utilization.allocatedWeightKg)} /{" "}
-                    {decimal(container.capacityWeightKg)} kg (
-                    {container.utilization.weightPercent}%)
-                  </td>
-                  <td>{container._count.allocations}</td>
-                  <td>
-                    <Link href={`/manager/containers/${container.id}`}>
-                      Open
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </QueryState>
+    <PageContainer>
+      <PageHeader
+        title="Containers"
+        description="Consolidated boxes: several clients share each one, up to its CBM and weight limits."
+        actions={
+          <Button asChild>
+            <a href="#open-container">
+              <PlusIcon />
+              Open a container
+            </a>
+          </Button>
+        }
+      />
 
-      <Section title="Open a container">
-        <NewContainer />
-      </Section>
-    </>
-  );
-}
+      <Card className="overflow-hidden">
+        <QueryState query={list} loading={<LoadingLines rows={6} />}>
+          {({ data }) => (
+            <>
+              <DataTable
+                columns={containerColumns}
+                data={data}
+                minWidth={820}
+                initialSorting={[{ id: "ref", desc: false }]}
+                onRowClick={(container) => router.push(`/manager/containers/${container.id}`)}
+                empty={
+                  <EmptyState
+                    icon={ContainerIcon}
+                    title="No containers yet"
+                    description="Open a container when you book one; then allocate orders to it until it’s full."
+                  />
+                }
+              />
+              <div className="flex flex-wrap justify-between gap-3 px-4 py-2.5 text-sm text-fg-secondary tabular-nums">
+                <span>
+                  {data.length} {data.length === 1 ? "container" : "containers"} ·{" "}
+                  {data.filter((c) => c.status === "OPEN_FOR_ALLOCATION").length} open for allocation
+                </span>
+                <span className="inline-flex gap-3.5">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-1.5 w-2.5 rounded-[2px] bg-brand" />
+                    CBM
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-1.5 w-2.5 rounded-[2px] bg-weight-bar" />
+                    Weight
+                  </span>
+                </span>
+              </div>
+            </>
+          )}
+        </QueryState>
+      </Card>
 
-function NewContainer() {
-  const [form, setForm] = useState({
-    containerRef: "",
-    containerType: "40HC",
-    capacityCbm: "68",
-    capacityWeightKg: "26000",
-    originPort: "",
-    destinationPort: "",
-    routeType: "DIRECT",
-  });
-
-  const set =
-    (field: keyof typeof form) =>
-    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setForm((current) => ({ ...current, [field]: event.target.value }));
-
-  const create = useAction(() =>
-    api("/containers", {
-      method: "POST",
-      body: {
-        ...form,
-        capacityCbm: Number(form.capacityCbm),
-        capacityWeightKg: Number(form.capacityWeightKg),
-      },
-    }).then(() => setForm((current) => ({ ...current, containerRef: "" }))),
-  );
-
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        create.mutate();
-      }}
-    >
-      <Field label="Reference">
-        <input required value={form.containerRef} onChange={set("containerRef")} />
-      </Field>
-      <Field label="Type">
-        <input required value={form.containerType} onChange={set("containerType")} />
-      </Field>
-      <Field label="Capacity (CBM)">
-        <input
-          type="number"
-          step="0.001"
-          min="0.001"
-          required
-          value={form.capacityCbm}
-          onChange={set("capacityCbm")}
-        />
-      </Field>
-      <Field label="Capacity (kg)">
-        <input
-          type="number"
-          step="0.001"
-          min="0.001"
-          required
-          value={form.capacityWeightKg}
-          onChange={set("capacityWeightKg")}
-        />
-      </Field>
-      <Field label="Origin port">
-        <input required value={form.originPort} onChange={set("originPort")} />
-      </Field>
-      <Field label="Destination port">
-        <input
-          required
-          value={form.destinationPort}
-          onChange={set("destinationPort")}
-        />
-      </Field>
-      <Field label="Route">
-        <select value={form.routeType} onChange={set("routeType")}>
-          <option value="DIRECT">Direct</option>
-          <option value="TRANSIT">Via transit stop</option>
-        </select>
-      </Field>
-      <button type="submit" disabled={create.isPending}>
-        Open container
-      </button>
-      <ErrorMessage error={create.error} />
-    </form>
+      <OpenContainerForm />
+    </PageContainer>
   );
 }

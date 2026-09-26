@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+import { FullPageLoader } from "@/components/common/full-page-loader";
 import type { Role } from "@/lib/api/types";
 import { homeFor, useAuth } from "./auth-context";
 
@@ -29,7 +30,7 @@ export function RequireRole({
   }, [state, role, router]);
 
   if (state.status !== "authenticated" || state.user.role !== role) {
-    return <p>Loading…</p>;
+    return <FullPageLoader />;
   }
 
   return <>{children}</>;

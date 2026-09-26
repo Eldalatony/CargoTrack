@@ -1,136 +1,146 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 
-import { DocumentsPanel } from "@/components/manager/documents-panel";
-import { OrderStatusActions } from "@/components/manager/order-status-actions";
-import { PaymentsPanel } from "@/components/manager/payments-panel";
-import { ProductionPanel } from "@/components/manager/production-panel";
-import { SettlementSummary } from "@/components/orders/settlement-summary";
-import {
-  HistoryTable,
-  StatusTimeline,
-} from "@/components/orders/status-timeline";
-import { QueryState } from "@/components/ui/query-state";
-import { Section } from "@/components/ui/section";
-import { api } from "@/lib/api/client";
-import type { Order, StatusChange } from "@/lib/api/types";
-import { date, decimal, label, money } from "@/lib/format";
+import { ErrorMessage } from "@/components/common/error-message";
+import { LoadingPage } from "@/components/common/query-state";
+import { OrderStatusBadge } from "@/components/common/status-badge";
+import { DocumentsSection } from "@/components/documents/documents-section";
+import { Crumbs, FactStrip, PageContainer, PageHeader } from "@/components/layout/page";
+import { Stagger, StaggerItem } from "@/components/motion";
+import { OrderItemsSection } from "@/components/orders/order-items-section";
+import { OrderRail, scrollToSection } from "@/components/orders/order-rail";
+import { OrderStatusSection } from "@/components/orders/order-status-section";
+import { PaymentsSection, type PaymentPreset } from "@/components/orders/payments-section";
+import { ProductionSection } from "@/components/orders/production-section";
+import { StatusHistoryCard } from "@/components/orders/status-history";
+import { documents, orders, payments } from "@/lib/api/queries";
+import type { OrderStatus } from "@/lib/api/types";
+import { amount, date, decimal, shortId } from "@/lib/format";
 
 /**
  * Everything the office does to one order, top to bottom in the order it
- * happens: status, production and QC, money, documents, history.
+ * happens: status, items, production and QC, money, documents, history —
+ * with the order at a glance in the right rail.
  */
 export default function ManagerOrderPage() {
   const { id } = useParams<{ id: string }>();
 
-  const order = useQuery({
-    queryKey: ["order", id],
-    queryFn: () => api<Order>(`/orders/${id}`),
-  });
+  const order = useQuery(orders.detail(id));
+  const history = useQuery(orders.history(id));
+  const docs = useQuery(documents.list({ orderId: id }));
+  const paymentList = useQuery(payments.forOrder(id));
 
-  const history = useQuery({
-    queryKey: ["order-history", id],
-    queryFn: () => api<StatusChange[]>(`/orders/${id}/status-history`),
-  });
+  const [pendingMove, setPendingMove] = useState<OrderStatus | null>(null);
+  const [paymentPreset, setPaymentPreset] = useState<PaymentPreset | null>(null);
+
+  if (order.isPending) {
+    return <LoadingPage />;
+  }
+
+  if (order.isError) {
+    return (
+      <PageContainer>
+        <ErrorMessage error={order.error} />
+      </PageContainer>
+    );
+  }
+
+  const data = order.data;
+  const trail = history.data ?? [];
+
+  function recordBalance() {
+    setPaymentPreset({
+      type: "BALANCE",
+      amount: amount(data.settlement.balanceDue),
+      nonce: Date.now(),
+    });
+    scrollToSection("payments");
+  }
 
   return (
-    <QueryState query={order}>
-      {(order) => (
-        <>
-          <p>
-            <Link href="/manager">Back to orders</Link>
-          </p>
-          <h1>
-            Order for {order.client.companyName} — {label(order.status)}
-          </h1>
-          <table>
-            <tbody>
-              <tr>
-                <th>Order id</th>
-                <td>{order.id}</td>
-              </tr>
-              <tr>
-                <th>Placed</th>
-                <td>{date(order.placedAt)}</td>
-              </tr>
-              <tr>
-                <th>Required by</th>
-                <td>{date(order.requiredBy)}</td>
-              </tr>
-              <tr>
-                <th>Agreed price</th>
-                <td>
-                  {money(order.agreedPrice, order.currency)} (deposit{" "}
-                  {decimal(order.depositPercentage, 2)}%)
-                </td>
-              </tr>
-              <tr>
-                <th>Volume / weight</th>
-                <td>
-                  {decimal(order.totalCbm)} CBM / {decimal(order.totalWeightKg)}{" "}
-                  kg
-                </td>
-              </tr>
-              <tr>
-                <th>Closed</th>
-                <td>{date(order.closedAt)}</td>
-              </tr>
-            </tbody>
-          </table>
+    <PageContainer className="pt-5">
+      <div className="flex flex-col gap-4">
+        <Crumbs items={[{ label: "Orders", href: "/manager" }, { label: shortId(data.id), mono: true }]} />
+        <PageHeader title={`Order for ${data.client.companyName}`}>
+          <OrderStatusBadge status={data.status} />
+        </PageHeader>
+        <FactStrip
+          facts={[
+            { label: "Order ID", value: shortId(data.id), mono: true },
+            { label: "Placed", value: date(data.placedAt) },
+            { label: "Required by", value: date(data.requiredBy) },
+            {
+              label: "Agreed price",
+              value: (
+                <>
+                  {amount(data.agreedPrice)} {data.currency}{" "}
+                  <span className="text-xs font-normal text-fg-secondary">
+                    · deposit {decimal(data.depositPercentage, 2)}%
+                  </span>
+                </>
+              ),
+            },
+            {
+              label: "Volume / weight",
+              value: `${decimal(data.totalCbm, 2)} CBM / ${decimal(data.totalWeightKg, 1)} kg`,
+            },
+            {
+              label: "Closed",
+              value: data.closedAt ? date(data.closedAt) : "Not closed yet",
+              muted: !data.closedAt,
+            },
+          ]}
+        />
+      </div>
 
-          <Section title="Status">
-            {history.data && (
-              <StatusTimeline status={order.status} history={history.data} />
-            )}
-            <OrderStatusActions order={order} />
-          </Section>
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="lg:col-start-2 lg:row-start-1 lg:self-stretch">
+          <OrderRail
+            order={data}
+            history={trail}
+            documents={docs.data?.data}
+            counts={{
+              items: data.items.length,
+              production: data.productionOrders.length,
+              payments: paymentList.data?.meta.total,
+              documents: docs.data?.data.filter((doc) => doc.isCurrent).length,
+              history: history.data?.length,
+            }}
+            onMove={setPendingMove}
+            onRecordBalance={recordBalance}
+          />
+        </div>
 
-          <Section title="Items">
-            <table>
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th>Quantity</th>
-                  <th>Unit CBM</th>
-                  <th>Unit weight (kg)</th>
-                  <th>Unit price</th>
-                </tr>
-              </thead>
-              <tbody>
-                {order.items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.description}</td>
-                    <td>{item.quantity}</td>
-                    <td>{decimal(item.unitCbm, 4)}</td>
-                    <td>{decimal(item.unitWeightKg)}</td>
-                    <td>{money(item.unitPrice, order.currency)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Section>
-
-          <Section title="Production and QC">
-            <ProductionPanel order={order} />
-          </Section>
-
-          <Section title="Payments">
-            <SettlementSummary settlement={order.settlement} />
-            <PaymentsPanel order={order} />
-          </Section>
-
-          <Section title="Documents">
-            <DocumentsPanel orderId={order.id} />
-          </Section>
-
-          <Section title="Status history">
-            {history.data && <HistoryTable history={history.data} />}
-          </Section>
-        </>
-      )}
-    </QueryState>
+        <Stagger className="flex min-w-0 flex-col gap-5 lg:col-start-1 lg:row-start-1">
+          <StaggerItem>
+            <OrderStatusSection
+              order={data}
+              history={trail}
+              pendingMove={pendingMove}
+              onPendingMove={setPendingMove}
+              onRecordBalance={recordBalance}
+            />
+          </StaggerItem>
+          <StaggerItem>
+            <OrderItemsSection order={data} />
+          </StaggerItem>
+          <StaggerItem>
+            <ProductionSection order={data} />
+          </StaggerItem>
+          <StaggerItem>
+            <PaymentsSection order={data} preset={paymentPreset} />
+          </StaggerItem>
+          <StaggerItem>
+            <DocumentsSection orderId={data.id} query={docs} />
+          </StaggerItem>
+          <StaggerItem>
+            <StatusHistoryCard id="history" history={trail} />
+          </StaggerItem>
+        </Stagger>
+      </div>
+    </PageContainer>
   );
 }

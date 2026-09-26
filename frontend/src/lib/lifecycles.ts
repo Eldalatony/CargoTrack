@@ -64,3 +64,13 @@ export const CONTAINER_NEXT: Record<ContainerStatus, ContainerStatus[]> = {
   ARRIVED: ["CLOSED"],
   CLOSED: [],
 };
+
+/**
+ * The happy-path step each exception branches off from, so it can be drawn
+ * in the right place even when the history doesn’t record every step.
+ */
+export const EXCEPTION_AFTER: Partial<Record<OrderStatus, OrderStatus>> = {
+  FACTORY_CANNOT_FULFIL: "ORDER_CONFIRMED",
+  QC_REJECTED: "GOODS_RECEIVED",
+  DOCUMENTS_WITHHELD: "DELIVERED",
+};

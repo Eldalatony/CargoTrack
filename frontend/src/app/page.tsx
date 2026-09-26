@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+import { FullPageLoader } from "@/components/common/full-page-loader";
 import { homeFor, useAuth } from "@/lib/auth/auth-context";
 
 /** Sends each visitor to where they belong: login, dashboard or portal. */
@@ -18,5 +19,5 @@ export default function Home() {
     }
   }, [state, router]);
 
-  return <p>Loading…</p>;
+  return <FullPageLoader />;
 }

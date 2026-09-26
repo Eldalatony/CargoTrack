@@ -1,10 +1,14 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
+import { AppShell, type NavLink } from "@/components/layout/app-shell";
 import { RequireRole } from "@/lib/auth/require-role";
 
-const LINKS = [
-  { href: "/portal", label: "My orders" },
+const LINKS: NavLink[] = [
+  {
+    href: "/portal",
+    label: "Your shipments",
+    match: (pathname) => pathname === "/portal" || pathname.startsWith("/portal/orders/"),
+  },
   { href: "/portal/notifications", label: "Messages" },
 ];
 
@@ -15,7 +19,7 @@ export default function PortalLayout({
 }) {
   return (
     <RequireRole role="CLIENT">
-      <AppShell area="Client portal" links={LINKS}>
+      <AppShell area="Portal" links={LINKS}>
         {children}
       </AppShell>
     </RequireRole>
